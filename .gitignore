@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+dist/
+
+# Local data/database
+*.db
+data/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Electron/Builder files
+*.exe
+*.msi
+*.zip
+Burger Orders.lnk
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

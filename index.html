@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- CSP: solo permite scripts del mismo origen -->
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>🍔 Burger Orders</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <!-- ── Loading ──────────────────────────────────────────────────── -->
+  <div id="loading">
+    <span class="loader"></span>
+    <p>Conectando...</p>
+  </div>
+
+  <!-- ── Header ──────────────────────────────────────────────────── -->
+  <header class="app-header">
+    <div class="header-left">
+      <h1>🍔 Burger Orders</h1>
+      <span id="badge-nuevos" class="badge-nuevos"></span>
+    </div>
+    <div class="header-center">
+      <button data-filtro="activos" class="filtro-btn filtro-activo">Activos</button>
+      <button data-filtro="todos" class="filtro-btn">Todos</button>
+      <button data-filtro="entregado" class="filtro-btn">Entregados</button>
+    </div>
+    <div class="header-right">
+      <button id="btn-vista-kanban" class="vista-btn" title="Vista Kanban">⬛⬛</button>
+      <button id="btn-vista-lista" class="vista-btn" title="Vista Lista">☰</button>
+      <span class="polling-indicator" title="Actualizando en tiempo real">●</span>
+    </div>
+  </header>
+
+  <!-- ── Kanban Board ──────────────────────────────────────────── -->
+  <main id="vista-kanban" class="kanban-board">
+
+    <!-- Columna: Nuevo -->
+    <div id="col-nuevo" class="kanban-col col-nuevo" data-estado="nuevo">
+      <div class="col-header">
+        <span class="col-emoji">🆕</span>
+        <span class="col-title">Nuevo</span>
+        <span class="col-count badge">0</span>
+      </div>
+      <div class="kanban-cards" data-estado="nuevo"></div>
+    </div>
+
+    <!-- Columna: Esperando -->
+    <div id="col-esperando" class="kanban-col col-preparacion" data-estado="esperando">
+      <div class="col-header">
+        <span class="col-emoji">⏳</span>
+        <span class="col-title">En Preparación</span>
+        <span class="col-count badge">0</span>
+      </div>
+      <div class="kanban-cards" data-estado="esperando"></div>
+    </div>
+
+    <!-- Columna: Listo -->
+    <div id="col-listo" class="kanban-col col-listo" data-estado="listo">
+      <div class="col-header">
+        <span class="col-emoji">✅</span>
+        <span class="col-title">Listo</span>
+        <span class="col-count badge">0</span>
+      </div>
+      <div class="kanban-cards" data-estado="listo"></div>
+    </div>
+
+  </main>
+
+  <!-- ── Lista (oculta por defecto) ────────────────────────────── -->
+  <main id="vista-lista" style="display:none">
+    <div id="lista-pedidos"></div>
+  </main>
+
+  <!-- ── Modal de pedido ────────────────────────────────────────── -->
+  <div id="modal-pedido" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h2>Detalle del Pedido</h2>
+        <button id="btn-cerrar-modal" class="btn-icon" title="Cerrar">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Contenido renderizado dinámicamente por renderer.js -->
+      </div>
+
+      <div class="modal-actions">
+        <button id="btn-volver" class="btn btn-secondary">← Volver</button>
+        <button id="btn-cancelar-pedido" class="btn btn-danger">🗑 Cancelar</button>
+        <button id="btn-editar-pedido" class="btn btn-secondary">✏️ Editar</button>
+        <button id="btn-guardar-pedido" class="btn btn-primary" style="display:none">💾 Guardar</button>
+        <button id="btn-imprimir" class="btn btn-primary">🖨️ Imprimir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal de confirmación de impresión (eliminado) ── -->
+
+  <!-- ── Error ──────────────────────────────────────────────────── -->
+  <div id="error-msg" class="error-msg" style="display:none"></div>
+
+  <!-- ── Toast container (se crea dinámicamente) ──────────────── -->
+  <div id="toast-container"></div>
+
+  <script src="renderer.js"></script>
+</body>
+
+</html>

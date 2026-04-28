@@ -1,0 +1,47 @@
+{
+  "name": "burger-orders",
+  "version": "1.0.0",
+  "description": "Gestión de pedidos de hamburguesas — App de escritorio Electron",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "NODE_ENV=development electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "cors": "^2.8.5",
+    "electron-store": "^8.2.0",
+    "express": "^4.18.3",
+    "node-thermal-printer": "^4.3.4",
+    "usb": "^2.12.1"
+  },
+  "devDependencies": {
+    "electron": "^29.1.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.tulocal.burger-orders",
+    "productName": "Burger Orders",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "extraResources": [
+      {
+        "from": "data/",
+        "to": "data/",
+        "filter": ["**/*"]
+      }
+    ]
+  },
+  "author": "Tu Nombre",
+  "license": "MIT"
+}
