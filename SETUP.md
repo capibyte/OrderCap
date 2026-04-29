@@ -45,8 +45,15 @@ NODE_ENV=development npm start
 
 ```bash
 npm run build:win
-# El instalador queda en /dist/
 ```
+
+### ¿Cómo compartir la aplicación?
+
+Una vez que termine el comando anterior, verás una carpeta llamada `dist/`. Tenés tres opciones para compartirla:
+
+1.  **Carpeta Independiente (Recomendado)**: Entrá a `dist/win-unpacked`. Copiá todo el contenido de esa carpeta (o comprimila en un .zip). La persona que la reciba solo tiene que ejecutar `Burger Orders.exe` dentro de esa carpeta.
+2.  **Ejecutable Único (Portable)**: En `dist/` buscá el archivo `Burger Orders Portable.exe`. Es un solo archivo que podés enviar y funciona sin instalar nada.
+3.  **Instalador**: En `dist/` buscá `Burger Orders Setup.exe`. Este es el instalador clásico.
 
 ---
 

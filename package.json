@@ -7,7 +7,8 @@
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
     "build": "electron-builder",
-    "build:win": "electron-builder --win"
+    "build:win": "electron-builder --win",
+    "postinstall": "electron-rebuild"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",
@@ -19,7 +20,8 @@
   },
   "devDependencies": {
     "electron": "^29.1.0",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "@electron/rebuild": "^3.6.0"
   },
   "build": {
     "appId": "com.tulocal.burger-orders",
@@ -28,19 +30,9 @@
       "output": "dist"
     },
     "win": {
-      "target": "nsis",
-      "icon": "assets/icon.ico"
-    },
-    "linux": {
-      "target": "AppImage"
-    },
-    "extraResources": [
-      {
-        "from": "data/",
-        "to": "data/",
-        "filter": ["**/*"]
-      }
-    ]
+      "target": ["nsis", "portable", "zip"],
+      "icon": "assets/icon_large.png"
+    }
   },
   "author": "Tu Nombre",
   "license": "MIT"
