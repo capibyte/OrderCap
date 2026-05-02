@@ -24,14 +24,15 @@
       <h1>🍔 Burger Orders</h1>
       <span id="badge-nuevos" class="badge-nuevos"></span>
     </div>
-    <div class="header-center">
-      <button data-filtro="activos" class="filtro-btn filtro-activo">Activos</button>
-      <button data-filtro="todos" class="filtro-btn">Todos</button>
+    <div class="header-center" id="header-filters" style="display:none">
+      <button data-filtro="todos" class="filtro-btn filtro-activo">Todos</button>
       <button data-filtro="entregado" class="filtro-btn">Entregados</button>
+      <button data-filtro="cancelado" class="filtro-btn">Cancelados</button>
     </div>
     <div class="header-right">
-      <button id="btn-vista-kanban" class="vista-btn" title="Vista Kanban">⬛⬛</button>
-      <button id="btn-vista-lista" class="vista-btn" title="Vista Lista">☰</button>
+      <button id="btn-vista-kanban" class="vista-btn" title="Vista Kanban">Pedidos</button>
+      <button id="btn-vista-lista" class="vista-btn" title="Vista Lista">Todos</button>
+      <button id="btn-vista-inventario" class="vista-btn" title="Depósito / Inventario">📦</button>
       <span class="polling-indicator" title="Actualizando en tiempo real">●</span>
     </div>
   </header>
@@ -69,11 +70,72 @@
       <div class="kanban-cards" data-estado="listo"></div>
     </div>
 
+  
+
   </main>
 
   <!-- ── Lista (oculta por defecto) ────────────────────────────── -->
   <main id="vista-lista" style="display:none">
     <div id="lista-pedidos"></div>
+  
+
+  </main>
+
+  <!-- ── Vista Inventario ──────────────────────────────────────── -->
+  <main id="vista-inventario" class="inventario-view" style="display:none">
+    <div class="inventario-tabs">
+      <button data-tab="insumos" class="tab-btn tab-activo">📦 Depósito (Insumos)</button>
+      <button data-tab="productos" class="tab-btn">🍔 Catálogo (Productos)</button>
+      <button data-tab="recetas" class="tab-btn">📝 Recetas</button>
+      <button data-tab="categorias" class="tab-btn">🏷️ Categorías</button>
+    </div>
+
+    <!-- Contenido Insumos -->
+    <div id="tab-insumos" class="tab-content activo">
+      <div class="tab-header">
+        <h2>Insumos</h2>
+        <select id="filtro-insumo-categoria" class="edit-input" style="width:200px; margin-left:20px;">
+           <option value="">Todas las categorías</option>
+        </select>
+        <button id="btn-nuevo-insumo" class="btn btn-primary">+ Nuevo Insumo</button>
+      </div>
+      <div id="lista-insumos"></div>
+    </div>
+
+    <!-- Contenido Productos -->
+    <div id="tab-productos" class="tab-content">
+      <div class="tab-header">
+        <h2>Productos</h2>
+        <select id="filtro-producto-categoria" class="edit-input" style="width:200px; margin-left:20px;">
+           <option value="">Todas las categorías</option>
+        </select>
+        <button id="btn-nuevo-producto" class="btn btn-primary">+ Nuevo Producto</button>
+      </div>
+      <div id="lista-productos"></div>
+    </div>
+
+    <!-- Contenido Recetas -->
+    <div id="tab-recetas" class="tab-content">
+      <div class="tab-header">
+        <h2>Recetas Armadas</h2>
+        <select id="filtro-receta-categoria" class="edit-input" style="width:200px; margin-left:20px;">
+           <option value="">Todas las categorías</option>
+        </select>
+        <button id="btn-nueva-receta" class="btn btn-primary">+ Nueva Receta</button>
+      </div>
+      <div id="lista-recetas-creadas"></div>
+    </div>
+
+    <!-- Contenido Categorias -->
+    <div id="tab-categorias" class="tab-content">
+      <div class="tab-header">
+        <h2>Categorías</h2>
+        <button id="btn-nueva-categoria" class="btn btn-primary">+ Nueva Categoría</button>
+      </div>
+      <div id="lista-categorias"></div>
+    </div>
+  
+
   </main>
 
   <!-- ── Modal de pedido ────────────────────────────────────────── -->
@@ -98,13 +160,131 @@
     </div>
   </div>
 
-  <!-- ── Modal de confirmación de impresión (eliminado) ── -->
+  <!-- ── Modal Insumo ────────────────────────────────────────── -->
+  <div id="modal-insumo" class="modal-overlay">
+    <div class="modal-container" style="width: 400px;">
+      <div class="modal-header">
+        <h2 id="modal-insumo-title">Nuevo Insumo</h2>
+        <button class="btn-icon" id="btn-cerrar-modal-insumo">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="insumo-id">
+        <div class="form-group edit-mode">
+           <label>Nombre</label>
+           <input type="text" id="insumo-nombre" class="edit-input" style="margin-bottom:10px;">
+           <label>Unidad de Medida</label>
+           <select id="insumo-unidad" class="edit-input" style="margin-bottom:10px;">
+              <option value="Unidad">Unidad</option>
+              <option value="Kg">Kilogramo (Kg)</option>
+              <option value="Gr">Gramo (Gr)</option>
+              <option value="Litro">Litro (L)</option>
+              <option value="Ml">Mililitro (Ml)</option>
+           </select>
+           <label>Categoría</label>
+           <select id="insumo-categoria" class="edit-input" style="margin-bottom:10px;">
+              <option value="">Sin Categoría</option>
+           </select>
+           <label>Cantidad Actual</label>
+           <input type="number" id="insumo-cantidad" class="edit-input" step="0.01" style="margin-bottom:10px;">
+           <label>Punto de Reposición (Mínimo)</label>
+           <input type="number" id="insumo-alerta" class="edit-input" step="0.01">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-guardar-insumo" class="btn btn-primary">💾 Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal Producto ────────────────────────────────────────── -->
+  <div id="modal-producto" class="modal-overlay">
+    <div class="modal-container" style="width: 400px;">
+      <div class="modal-header">
+        <h2 id="modal-producto-title">Nuevo Producto</h2>
+        <button class="btn-icon" id="btn-cerrar-modal-producto">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="producto-id">
+        <div class="form-group edit-mode">
+           <label>Nombre</label>
+           <input type="text" id="producto-nombre" class="edit-input" style="margin-bottom:10px;">
+           <label>Categoría</label>
+           <select id="producto-categoria" class="edit-input" style="margin-bottom:10px;">
+              <option value="">Sin Categoría</option>
+           </select>
+           <label>Precio ($)</label>
+           <input type="number" id="producto-precio" class="edit-input" step="0.01" style="margin-bottom:10px;">
+           <label>Stock Actual (Solo si NO usa receta)</label>
+           <input type="number" id="producto-stock" class="edit-input">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-guardar-producto" class="btn btn-primary">💾 Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal Categoria ────────────────────────────────────────── -->
+  <div id="modal-categoria" class="modal-overlay">
+    <div class="modal-container" style="width: 400px;">
+      <div class="modal-header">
+        <h2 id="modal-categoria-title">Nueva Categoría</h2>
+        <button class="btn-icon" id="btn-cerrar-modal-categoria">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="categoria-id">
+        <div class="form-group edit-mode">
+           <label>Nombre</label>
+           <input type="text" id="categoria-nombre" class="edit-input" style="margin-bottom:10px;">
+           <input type="hidden" id="categoria-tipo" value="general">
+           <label>Color Visual</label>
+           <input type="color" id="categoria-color" class="edit-input" value="#4b6584">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-guardar-categoria" class="btn btn-primary">💾 Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal Receta ────────────────────────────────────────── -->
+  <div id="modal-receta" class="modal-overlay">
+    <div class="modal-container" style="width: 500px;">
+      <div class="modal-header">
+        <h2 id="modal-receta-title">Armar Receta</h2>
+        <button class="btn-icon" id="btn-cerrar-modal-receta">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group edit-mode">
+           <label>Producto</label>
+           <select id="receta-producto-select" class="edit-input" style="margin-bottom:20px;">
+              <option value="">Seleccione un producto...</option>
+           </select>
+           
+           <h3 style="font-size: 14px; margin-bottom:10px; color:var(--text1)">Insumos Necesarios</h3>
+           <div id="receta-items"></div>
+           <button id="btn-add-insumo-receta" class="btn btn-secondary btn-small" style="margin-top:10px">+ Agregar Insumo</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-guardar-receta" class="btn btn-primary">💾 Guardar Receta</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Error ──────────────────────────────────────────────────── -->
   <div id="error-msg" class="error-msg" style="display:none"></div>
 
   <!-- ── Toast container (se crea dinámicamente) ──────────────── -->
   <div id="toast-container"></div>
+
+  <!-- ── Floating Action Button (FAB) ──────────────────────────── -->
+  <button id="btn-fab-crear" class="fab-btn" title="Nuevo Pedido Manual">
+    <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19"></line>
+      <line x1="5" y1="12" x2="19" y2="12"></line>
+    </svg>
+  </button>
 
   <script src="renderer.js"></script>
 </body>

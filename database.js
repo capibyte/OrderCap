@@ -57,9 +57,63 @@ function initDatabase() {
       metodo_pago     TEXT DEFAULT 'efectivo',    -- efectivo | transferencia | mercadopago
       estado          TEXT DEFAULT 'nuevo',       -- nuevo | en_preparacion | listo | entregado | cancelado
       notas           TEXT DEFAULT '',
-      fuente          TEXT DEFAULT 'whatsapp',    -- whatsapp | manual
+      fuente          TEXT DEFAULT 'manual',      -- manual
       created_at      TEXT DEFAULT (datetime('now', 'localtime')),
       updated_at      TEXT DEFAULT (datetime('now', 'localtime'))
+    );
+
+    CREATE TABLE IF NOT EXISTS productos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL,
+      precio REAL NOT NULL,
+      categoria TEXT NOT NULL,
+      stock_actual INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS insumos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL,
+      unidad_medida TEXT NOT NULL,
+      cantidad_actual REAL DEFAULT 0,
+      punto_reposicion REAL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS recetas (
+      producto_id INTEGER NOT NULL,
+      insumo_id INTEGER NOT NULL,
+      cantidad_necesaria REAL NOT NULL,
+      FOREIGN KEY(producto_id) REFERENCES productos(id) ON DELETE CASCADE,
+      FOREIGN KEY(insumo_id) REFERENCES insumos(id) ON DELETE CASCADE,
+      PRIMARY KEY(producto_id, insumo_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS modificadores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL,
+      precio_extra REAL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS categorias (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL,
+      tipo TEXT NOT NULL,         -- 'producto' o 'insumo'
+      color TEXT DEFAULT '#4b6584'
+    );
+
+    CREATE TABLE IF NOT EXISTS modificadores_receta (
+      modificador_id INTEGER NOT NULL,
+      insumo_id INTEGER NOT NULL,
+      diferencia_cantidad REAL NOT NULL,
+      FOREIGN KEY(modificador_id) REFERENCES modificadores(id) ON DELETE CASCADE,
+      FOREIGN KEY(insumo_id) REFERENCES insumos(id) ON DELETE CASCADE,
+      PRIMARY KEY(modificador_id, insumo_id)
+    );
+    CREATE TABLE IF NOT EXISTS productos_modificadores (
+      producto_id INTEGER NOT NULL,
+      modificador_id INTEGER NOT NULL,
+      FOREIGN KEY(producto_id) REFERENCES productos(id) ON DELETE CASCADE,
+      FOREIGN KEY(modificador_id) REFERENCES modificadores(id) ON DELETE CASCADE,
+      PRIMARY KEY(producto_id, modificador_id)
     );
 
     CREATE TABLE IF NOT EXISTS configuracion (
@@ -71,6 +125,10 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_pedidos_estado ON pedidos(estado);
     CREATE INDEX IF NOT EXISTS idx_pedidos_created ON pedidos(created_at DESC);
   `);
+
+  // Migraciones menores para añadir categoria_id a las tablas existentes
+  try { db.exec("ALTER TABLE productos ADD COLUMN categoria_id INTEGER REFERENCES categorias(id);"); } catch (e) { /* Columna ya existe */ }
+  try { db.exec("ALTER TABLE insumos ADD COLUMN categoria_id INTEGER REFERENCES categorias(id);"); } catch (e) { /* Columna ya existe */ }
 
   // Migración: agregar columna direccion a bases de datos existentes
   try {

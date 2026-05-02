@@ -59,6 +59,37 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deletePedido: (id) =>
     ipcRenderer.invoke('pedidos:delete', id),
 
+  /**
+   * Crear un pedido manual
+   * @param {Pedido} pedido
+   */
+  createPedido: (pedido) =>
+    ipcRenderer.invoke('pedidos:create', pedido),
+
+  // ─── INVENTARIO ─────────────────────────────────────────────────────────
+
+  getCategorias: () => ipcRenderer.invoke('categorias:getAll'),
+  createCategoria: (cat) => ipcRenderer.invoke('categorias:create', cat),
+  updateCategoria: (cat) => ipcRenderer.invoke('categorias:update', cat),
+  deleteCategoria: (id) => ipcRenderer.invoke('categorias:delete', id),
+  getProductos: () => ipcRenderer.invoke('productos:getAll'),
+  createProducto: (prod) => ipcRenderer.invoke('productos:create', prod),
+  updateProducto: (prod) => ipcRenderer.invoke('productos:update', prod),
+  deleteProducto: (id) => ipcRenderer.invoke('productos:delete', id),
+
+  getInsumos: () => ipcRenderer.invoke('insumos:getAll'),
+  createInsumo: (insumo) => ipcRenderer.invoke('insumos:create', insumo),
+  updateInsumo: (insumo) => ipcRenderer.invoke('insumos:update', insumo),
+  deleteInsumo: (id) => ipcRenderer.invoke('insumos:delete', id),
+
+  getAllRecetas: () => ipcRenderer.invoke('recetas:getAll'),
+  deleteReceta: (productoId) => ipcRenderer.invoke('recetas:delete', productoId),
+  getReceta: (productoId) => ipcRenderer.invoke('recetas:getByProducto', productoId),
+  saveReceta: (productoId, items) => ipcRenderer.invoke('recetas:save', { producto_id: productoId, items }),
+
+  checkStockAlerts: () => ipcRenderer.invoke('inventario:checkAlerts'),
+  checkStock: (productos) => ipcRenderer.invoke('inventario:checkStock', productos),
+
   // ─── IMPRESIÓN ──────────────────────────────────────────────────────────
 
   /**
