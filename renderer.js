@@ -974,11 +974,12 @@ function setupInventarioListeners() {
     btn.addEventListener('click', (e) => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-activo'));
       e.target.classList.add('tab-activo');
-
+      
       const tabId = e.target.dataset.tab;
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('activo'));
-      document.getElementById('tab-' + tabId).classList.add('activo');
-
+      const targetTab = document.getElementById('tab-' + tabId);
+      if (targetTab) targetTab.classList.add('activo');
+      
       inventarioState.tabActual = tabId;
       renderizarInventario();
     });
@@ -1020,9 +1021,9 @@ function setupInventarioListeners() {
   document.getElementById('btn-guardar-producto')?.addEventListener('click', guardarProducto);
   document.getElementById('btn-guardar-categoria')?.addEventListener('click', guardarCategoria);
   document.getElementById('btn-guardar-receta')?.addEventListener('click', guardarReceta);
-
+  
   document.getElementById('btn-add-insumo-receta')?.addEventListener('click', () => agregarFilaReceta());
-
+  
   document.getElementById('filtro-insumo-categoria')?.addEventListener('change', renderizarInventario);
   document.getElementById('filtro-producto-categoria')?.addEventListener('change', renderizarInventario);
   document.getElementById('filtro-receta-categoria')?.addEventListener('change', renderizarInventario);
@@ -1036,10 +1037,10 @@ function setupInventarioListeners() {
   // Click fuera para cerrar
   ['modal-insumo', 'modal-producto', 'modal-categoria', 'modal-receta'].forEach(modalId => {
     const modal = document.getElementById(modalId);
-    if (modal) {
-      modal.addEventListener('click', (e) => {
-        if (e.target.id === modalId) modal.classList.remove('visible');
-      });
+    if(modal) {
+       modal.addEventListener('click', (e) => {
+         if (e.target.id === modalId) modal.classList.remove('visible');
+       });
     }
   });
 
@@ -1100,40 +1101,21 @@ async function checkAlerts() {
 
 async function cargarCategoriasYSelects() {
   const resCat = await window.electronAPI.getCategorias();
-  if (!resCat.ok) return;
+  if (resCat.ok) {
+    inventarioState.categorias = resCat.data;
 
-  inventarioState.categorias = resCat.data;
+    const fillSelect = (id, optionsArray, defaultText) => {
+      const el = document.getElementById(id);
+      if(!el) return;
+      el.innerHTML = '<option value="">' + defaultText + '</option>' + optionsArray.map(c => '<option value="'+c.id+'">'+escapeHtml(c.nombre)+'</option>').join('');
+    };
 
-  // Rellena un <select> preservando el valor actualmente seleccionado
-  const fillSelect = (id, optionsArray, defaultText) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const valorPrevio = el.value; // Guardar selección actual antes de reconstruir
-    el.innerHTML =
-      '<option value="">' + defaultText + '</option>' +
-      optionsArray
-        .map(c => '<option value="' + c.id + '">' + escapeHtml(c.nombre) + '</option>')
-        .join('');
-    // Restaurar selección previa si todavía existe entre las opciones
-    if (valorPrevio) el.value = valorPrevio;
-  };
-
-  // Selects de los modales (producto e insumo) — solo se rellenan si el modal
-  // NO está abierto, para no interferir con una edición en curso.
-  const modalProductoAbierto = document.getElementById('modal-producto')?.classList.contains('visible');
-  const modalInsumoAbierto = document.getElementById('modal-insumo')?.classList.contains('visible');
-
-  if (!modalProductoAbierto) {
     fillSelect('producto-categoria', inventarioState.categorias, 'Sin Categoría');
-  }
-  if (!modalInsumoAbierto) {
     fillSelect('insumo-categoria', inventarioState.categorias, 'Sin Categoría');
+    fillSelect('filtro-producto-categoria', inventarioState.categorias, 'Todas las categorías');
+    fillSelect('filtro-insumo-categoria', inventarioState.categorias, 'Todas las categorías');
+    fillSelect('filtro-receta-categoria', inventarioState.categorias, 'Todas las categorías');
   }
-
-  // Selects de filtro de la pantalla principal — siempre se actualizan
-  fillSelect('filtro-producto-categoria', inventarioState.categorias, 'Todas las categorías');
-  fillSelect('filtro-insumo-categoria', inventarioState.categorias, 'Todas las categorías');
-  fillSelect('filtro-receta-categoria', inventarioState.categorias, 'Todas las categorías');
 }
 
 async function renderizarInventario() {
@@ -1151,14 +1133,14 @@ async function renderizarInventario() {
         if (i.cantidad_actual <= 0) statusClass = 'status-danger';
         else if (i.cantidad_actual <= i.punto_reposicion) statusClass = 'status-warn';
         const cat = inventarioState.categorias.find(c => c.id === i.categoria_id);
-        const catBadge = cat ? '<span class="badge" style="background:' + cat.color + '; color:#fff">' + escapeHtml(cat.nombre) + '</span>' : '';
+        const catBadge = cat ? '<span class="badge" style="background:'+cat.color+'; color:#fff">'+escapeHtml(cat.nombre)+'</span>' : '';
 
         return '<div class="pedido-card" style="display:flex; justify-content:space-between; align-items:center;">' +
-          '  <div><span class="status-indicator ' + statusClass + '"></span>' +
-          '  <strong style="margin-left:8px;">' + escapeHtml(i.nombre) + '</strong> ' + catBadge +
-          '  <div style="color:var(--text2); font-size:12px; margin-top:4px;">Cant: ' + i.cantidad_actual + ' ' + i.unidad_medida + '</div></div>' +
-          '  <div><button class="btn btn-secondary btn-small btn-editar-insumo" data-id="' + i.id + '">✏️</button>' +
-          '  <button class="btn btn-secondary btn-small btn-eliminar-insumo" data-id="' + i.id + '" style="color:var(--danger)">🗑️</button></div></div>';
+               '  <div><span class="status-indicator ' + statusClass + '"></span>' +
+               '  <strong style="margin-left:8px;">' + escapeHtml(i.nombre) + '</strong> ' + catBadge +
+               '  <div style="color:var(--text2); font-size:12px; margin-top:4px;">Cant: ' + i.cantidad_actual + ' ' + i.unidad_medida + '</div></div>' +
+               '  <div><button class="btn btn-secondary btn-small btn-editar-insumo" data-id="' + i.id + '">✏️</button>' +
+               '  <button class="btn btn-secondary btn-small btn-eliminar-insumo" data-id="' + i.id + '" style="color:var(--danger)">🗑️</button></div></div>';
       }).join('');
       document.getElementById('lista-insumos').innerHTML = html || '<div class="empty-state">No hay insumos</div>';
     }
@@ -1172,9 +1154,9 @@ async function renderizarInventario() {
         const color = p.categoria_color || 'var(--surface2)';
         const catName = p.categoria_id ? inventarioState.categorias.find(c => c.id === p.categoria_id)?.nombre : 'Sin Categoría';
         return '<div class="pedido-card" style="display:flex; justify-content:space-between; align-items:center;">' +
-          '  <div><strong>' + escapeHtml(p.nombre) + '</strong> <span class="badge" style="background:' + color + '; color:#fff">' + escapeHtml(catName) + '</span></div>' +
-          '  <div><button class="btn btn-secondary btn-small btn-editar-producto" data-id="' + p.id + '">✏️</button>' +
-          '  <button class="btn btn-secondary btn-small btn-eliminar-producto" data-id="' + p.id + '" style="color:var(--danger)">🗑️</button></div></div>';
+               '  <div><strong>' + escapeHtml(p.nombre) + '</strong> <span class="badge" style="background:'+color+'; color:#fff">' + escapeHtml(catName) + '</span></div>' +
+               '  <div><button class="btn btn-secondary btn-small btn-editar-producto" data-id="' + p.id + '">✏️</button>' +
+               '  <button class="btn btn-secondary btn-small btn-eliminar-producto" data-id="' + p.id + '" style="color:var(--danger)">🗑️</button></div></div>';
       }).join('');
       document.getElementById('lista-productos').innerHTML = html || '<div class="empty-state">No hay productos</div>';
     }
@@ -1186,16 +1168,16 @@ async function renderizarInventario() {
       const html = filtrados.map(r => {
         const color = r.categoria_color || 'var(--surface2)';
         return '<div class="pedido-card" style="display:flex; justify-content:space-between; align-items:center;">' +
-          '  <div><strong>' + escapeHtml(r.nombre) + '</strong> <span class="badge" style="background:' + color + '; color:#fff">' + escapeHtml(r.categoria_nombre || 'Sin Categoría') + '</span></div>' +
-          '  <div><button class="btn btn-secondary btn-small btn-editar-receta" data-id="' + r.id + '">✏️ Editar Receta</button>' +
-          '  <button class="btn btn-secondary btn-small btn-eliminar-receta" data-id="' + r.id + '" style="color:var(--danger)">🗑️</button></div></div>';
+               '  <div><strong>' + escapeHtml(r.nombre) + '</strong> <span class="badge" style="background:'+color+'; color:#fff">' + escapeHtml(r.categoria_nombre || 'Sin Categoría') + '</span></div>' +
+               '  <div><button class="btn btn-secondary btn-small btn-editar-receta" data-id="' + r.id + '">✏️ Editar Receta</button>' +
+               '  <button class="btn btn-secondary btn-small btn-eliminar-receta" data-id="' + r.id + '" style="color:var(--danger)">🗑️</button></div></div>';
       }).join('');
       document.getElementById('lista-recetas-creadas').innerHTML = html || '<div class="empty-state">No hay recetas armadas</div>';
     }
   } else if (inventarioState.tabActual === 'categorias') {
-    const html = inventarioState.categorias.map(c =>
+    const html = inventarioState.categorias.map(c => 
       '<div class="pedido-card" style="display:flex; justify-content:space-between; align-items:center;">' +
-      '  <div><span class="status-indicator" style="background-color:' + c.color + '; box-shadow:none;"></span>' +
+      '  <div><span class="status-indicator" style="background-color:'+c.color+'; box-shadow:none;"></span>' +
       '  <strong style="margin-left:8px;">' + escapeHtml(c.nombre) + '</strong></div>' +
       '  <div><button class="btn btn-secondary btn-small btn-editar-categoria" data-id="' + c.id + '">✏️</button>' +
       '  <button class="btn btn-secondary btn-small btn-eliminar-categoria" data-id="' + c.id + '" style="color:var(--danger)">🗑️</button></div></div>'
@@ -1208,13 +1190,13 @@ async function renderizarInventario() {
 async function abrirModalReceta(productoId = null) {
   const resProd = await window.electronAPI.getProductos();
   if (resProd.ok) inventarioState.productos = resProd.data;
-
+  
   const select = document.getElementById('receta-producto-select');
-  select.innerHTML = '<option value="">Seleccione un producto...</option>' +
-    inventarioState.productos.map(p => '<option value="' + p.id + '">' + escapeHtml(p.nombre) + '</option>').join('');
-
+  select.innerHTML = '<option value="">Seleccione un producto...</option>' + 
+    inventarioState.productos.map(p => '<option value="'+p.id+'">'+escapeHtml(p.nombre)+'</option>').join('');
+  
   document.getElementById('receta-items').innerHTML = '';
-
+  
   if (productoId) {
     select.value = productoId;
     await cargarItemsReceta(productoId);
@@ -1222,7 +1204,7 @@ async function abrirModalReceta(productoId = null) {
   } else {
     document.getElementById('modal-receta-title').textContent = 'Nueva Receta';
   }
-
+  
   document.getElementById('modal-receta').classList.add('visible');
 }
 
@@ -1243,10 +1225,10 @@ async function cargarItemsReceta(productoId) {
 
 function agregarFilaReceta(data = null) {
   const container = document.getElementById('receta-items');
-  const options = inventarioState.insumos.map(i =>
-    '<option value="' + i.id + '" ' + (data && data.insumo_id === i.id ? 'selected' : '') + '>' + escapeHtml(i.nombre) + ' (' + i.unidad_medida + ')</option>'
+  const options = inventarioState.insumos.map(i => 
+    '<option value="'+i.id+'" '+(data && data.insumo_id === i.id ? 'selected' : '')+'>'+escapeHtml(i.nombre)+' ('+i.unidad_medida+')</option>'
   ).join('');
-
+  
   const div = document.createElement('div');
   div.className = 'receta-item-row';
   div.innerHTML = `<select class="edit-input select-insumo"><option value="">Insumo...</option>${options}</select>
@@ -1257,21 +1239,41 @@ function agregarFilaReceta(data = null) {
 
 async function guardarReceta() {
   const productoId = parseInt(document.getElementById('receta-producto-select').value);
-  if (!productoId) return mostrarToast('Selecciona un producto', 'error');
-
+  console.log('[DEBUG] Intentando guardar receta para Producto ID:', productoId);
+  
+  if (!productoId) {
+    console.warn('[WARN] No se seleccionó ningún producto para la receta');
+    return mostrarToast('Selecciona un producto', 'error');
+  }
+  
   const items = [];
-  document.querySelectorAll('.receta-item-row').forEach(row => {
+  document.querySelectorAll('.receta-item-row').forEach((row, index) => {
     const insumo_id = parseInt(row.querySelector('.select-insumo').value);
     const cant = parseFloat(row.querySelector('.input-cant-insumo').value);
-    if (insumo_id && cant > 0) items.push({ insumo_id, cantidad_necesaria: cant });
+    console.log(`[DEBUG] Fila ${index}: Insumo ID = ${insumo_id}, Cantidad = ${cant}`);
+    if (insumo_id && cant > 0) {
+      items.push({ insumo_id, cantidad_necesaria: cant });
+    }
   });
+  
+  console.log('[DEBUG] Items finales de la receta:', items);
+  
+  if (items.length === 0) {
+    console.warn('[WARN] La receta no tiene items válidos');
+    return mostrarToast('Agrega al menos un insumo con cantidad', 'error');
+  }
 
   const res = await window.electronAPI.saveReceta(productoId, items);
+  console.log('[DEBUG] Respuesta del servidor (saveReceta):', res);
+  
   if (res.ok) {
     document.getElementById('modal-receta').classList.remove('visible');
     renderizarInventario();
     mostrarToast('Receta guardada', 'success');
-  } else mostrarToast('Error: ' + res.error, 'error');
+  } else {
+    console.error('[ERROR] Fallo al guardar receta:', res.error);
+    mostrarToast('Error: ' + res.error, 'error');
+  }
 }
 
 async function eliminarReceta(id) {
@@ -1302,8 +1304,10 @@ async function guardarInsumo() {
     punto_reposicion: parseFloat(document.getElementById('insumo-alerta').value) || 0,
     categoria_id: parseInt(document.getElementById('insumo-categoria').value) || null
   };
+  console.log('[DEBUG] Guardando Insumo:', data);
   let res = data.id ? await window.electronAPI.updateInsumo(data) : await window.electronAPI.createInsumo(data);
   if (res.ok) { document.getElementById('modal-insumo').classList.remove("visible"); renderizarInventario(); checkAlerts(); }
+  else console.error('[ERROR] Guardar Insumo:', res.error);
 }
 async function eliminarInsumo(id) { if (confirm("¿Eliminar insumo?")) { await window.electronAPI.deleteInsumo(id); renderizarInventario(); } }
 
@@ -1318,37 +1322,18 @@ function editarProducto(id) {
   document.getElementById('modal-producto').classList.add("visible");
 }
 async function guardarProducto() {
-  // Leer categoria_id directamente del select del modal (no del filtro de la pantalla principal)
-  const selectCategoria = document.getElementById('producto-categoria');
-  const catId = selectCategoria ? (parseInt(selectCategoria.value) || null) : null;
-
-  const nombre = (document.getElementById('producto-nombre').value || '').trim();
-  if (!nombre) {
-    mostrarToast('⚠️ El nombre del producto no puede estar vacío', 'warning');
-    return;
-  }
-
-  const rawId = document.getElementById('producto-id').value;
+  const catId = parseInt(document.getElementById('producto-categoria').value) || null;
   const data = {
-    nombre: nombre,
-    categoria_id: catId,
-    precio: parseFloat(document.getElementById('producto-precio').value) || 0,
+    id: document.getElementById('producto-id').value, nombre: document.getElementById('producto-nombre').value,
+    categoria_id: catId, precio: parseFloat(document.getElementById('producto-precio').value) || 0,
     stock_actual: parseInt(document.getElementById('producto-stock').value) || 0,
   };
-  // Solo incluir id si existe (string no vacío), para que el backend distinga crear vs actualizar
-  if (rawId) data.id = rawId;
-
-  const res = data.id
-    ? await window.electronAPI.updateProducto(data)
-    : await window.electronAPI.createProducto(data);
-
-  if (res.ok) {
-    // Garantizar que el modal cierre siempre en éxito
-    document.getElementById('modal-producto').classList.remove('visible');
-    mostrarToast(data.id ? '✅ Producto actualizado' : '✅ Producto creado', 'success');
-    renderizarInventario();
-  } else {
-    mostrarToast('❌ Error al guardar: ' + (res.error || 'Error desconocido'), 'error');
+  console.log('[DEBUG] Guardando Producto:', data);
+  let res = data.id ? await window.electronAPI.updateProducto(data) : await window.electronAPI.createProducto(data);
+  if (res.ok) { document.getElementById('modal-producto').classList.remove("visible"); renderizarInventario(); }
+  else {
+    console.error('[ERROR] Guardar Producto:', res.error);
+    mostrarToast('Error al guardar: ' + res.error, 'error');
   }
 }
 async function eliminarProducto(id) { if (confirm("¿Eliminar producto?")) { await window.electronAPI.deleteProducto(id); renderizarInventario(); } }
@@ -1367,7 +1352,9 @@ async function guardarCategoria() {
     id: document.getElementById('categoria-id').value, nombre: document.getElementById('categoria-nombre').value,
     tipo: document.getElementById('categoria-tipo').value, color: document.getElementById('categoria-color').value,
   };
+  console.log('[DEBUG] Guardando Categoria:', data);
   let res = data.id ? await window.electronAPI.updateCategoria(data) : await window.electronAPI.createCategoria(data);
   if (res.ok) { document.getElementById('modal-categoria').classList.remove("visible"); renderizarInventario(); }
+  else console.error('[ERROR] Guardar Categoria:', res.error);
 }
 async function eliminarCategoria(id) { if (confirm("¿Eliminar categoría?")) { await window.electronAPI.deleteCategoria(id); renderizarInventario(); } }

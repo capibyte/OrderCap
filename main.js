@@ -244,7 +244,7 @@ function setupIpcHandlers() {
 
   ipcMain.handle('categorias:create', async (_, cat) => {
     try {
-      const info = db.prepare(`INSERT INTO categorias (nombre, tipo, color) VALUES (?, ?, ?)`).run(cat.nombre, cat.tipo, cat.color || '#4b6584');
+      const info = db.prepare(`INSERT INTO categorias (nombre, tipo, color) VALUES (?, ?, ?)`).run(cat.nombre, cat.tipo || 'general', cat.color || '#4b6584');
       return { ok: true, id: info.lastInsertRowid };
     } catch (err) { return { ok: false, error: err.message }; }
   });
@@ -308,14 +308,14 @@ function setupIpcHandlers() {
 
   ipcMain.handle('productos:create', async (_, prod) => {
     try {
-      const info = db.prepare(`INSERT INTO productos (nombre, precio, categoria, stock_actual, categoria_id) VALUES (?, ?, ?, ?, ?)`).run(prod.nombre, prod.precio || 0, prod.categoria, prod.stock_actual || 0, prod.categoria_id || null);
+      const info = db.prepare(`INSERT INTO productos (nombre, precio, categoria, stock_actual, categoria_id) VALUES (?, ?, ?, ?, ?)`).run(prod.nombre, prod.precio || 0, prod.categoria || null, prod.stock_actual || 0, prod.categoria_id || null);
       return { ok: true, id: info.lastInsertRowid };
     } catch (err) { return { ok: false, error: err.message }; }
   });
 
   ipcMain.handle('productos:update', async (_, prod) => {
     try {
-      db.prepare(`UPDATE productos SET nombre=?, precio=?, categoria=?, stock_actual=?, categoria_id=? WHERE id=?`).run(prod.nombre, prod.precio || 0, prod.categoria, prod.stock_actual || 0, prod.categoria_id || null, prod.id);
+      db.prepare(`UPDATE productos SET nombre=?, precio=?, categoria=?, stock_actual=?, categoria_id=? WHERE id=?`).run(prod.nombre, prod.precio || 0, prod.categoria || null, prod.stock_actual || 0, prod.categoria_id || null, prod.id);
       return { ok: true };
     } catch (err) { return { ok: false, error: err.message }; }
   });

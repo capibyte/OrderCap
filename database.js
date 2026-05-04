@@ -66,8 +66,9 @@ function initDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       nombre TEXT NOT NULL,
       precio REAL NOT NULL,
-      categoria TEXT NOT NULL,
-      stock_actual INTEGER DEFAULT 0
+      categoria TEXT, -- Ahora opcional
+      stock_actual INTEGER DEFAULT 0,
+      categoria_id INTEGER REFERENCES categorias(id)
     );
 
     CREATE TABLE IF NOT EXISTS insumos (
@@ -75,7 +76,8 @@ function initDatabase() {
       nombre TEXT NOT NULL,
       unidad_medida TEXT NOT NULL,
       cantidad_actual REAL DEFAULT 0,
-      punto_reposicion REAL DEFAULT 0
+      punto_reposicion REAL DEFAULT 0,
+      categoria_id INTEGER REFERENCES categorias(id)
     );
 
     CREATE TABLE IF NOT EXISTS recetas (
