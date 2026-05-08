@@ -63,8 +63,7 @@ function createWindow() {
 // ─── Handlers IPC ──────────────────────────────────────────────────────────
 // Estos son los "endpoints" que el renderer llama via window.electronAPI
 
-function setupIpcHandlers() {
-  const db = initDatabase();
+function setupIpcHandlers(db) {
 
   // ── PEDIDOS: Leer todos ──────────────────────────────────────────────────
   ipcMain.handle('pedidos:getAll', async () => {
@@ -214,22 +213,96 @@ function setupIpcHandlers() {
   // ── PEDIDOS: Editar ──────────────────────────────────────────────────────
   ipcMain.handle('pedidos:update', async (_, pedido) => {
     try {
-      db.prepare(`
-        UPDATE pedidos
-        SET cliente_nombre = ?, cliente_tel = ?, direccion = ?, productos = ?, total = ?, metodo_pago = ?, notas = ?, updated_at = datetime('now')
-        WHERE id = ?
-      `).run(
-        pedido.cliente_nombre,
-        pedido.cliente_tel || '',
-        pedido.direccion || '',
-        pedido.productos,       // JSON string
-        pedido.total,
-        pedido.metodo_pago,
-        pedido.notas || '',
-        pedido.id
-      );
+      const updateTx = db.transaction((pedidoObj) => {
+        // 1. Obtener pedido actual para restaurar stock
+        const oldPedido = db.prepare(`SELECT productos, estado FROM pedidos WHERE id = ?`).get(pedidoObj.id);
+        if (!oldPedido) throw new Error('Pedido no encontrado');
+
+        // Solo restauramos stock si el pedido no estaba cancelado
+        if (oldPedido.estado !== 'cancelado') {
+          let oldProductos = [];
+          try { oldProductos = JSON.parse(oldPedido.productos); } catch (e) { }
+
+          for (const p of oldProductos) {
+            const cant = p.cantidad || 1;
+            if (p.producto_id) {
+              const receta = db.prepare(`SELECT insumo_id, cantidad_necesaria FROM recetas WHERE producto_id = ?`).all(p.producto_id);
+              if (receta.length > 0) {
+                for (const r of receta) {
+                  db.prepare(`UPDATE insumos SET cantidad_actual = cantidad_actual + ? WHERE id = ?`)
+                    .run(r.cantidad_necesaria * cant, r.insumo_id);
+                }
+              } else {
+                db.prepare(`UPDATE productos SET stock_actual = stock_actual + ? WHERE id = ?`)
+                  .run(cant, p.producto_id);
+              }
+            }
+          }
+        }
+
+        // 2. Actualizar el pedido
+        db.prepare(`
+          UPDATE pedidos
+          SET cliente_nombre = ?, cliente_tel = ?, direccion = ?, productos = ?, total = ?, metodo_pago = ?, notas = ?, updated_at = datetime('now')
+          WHERE id = ?
+        `).run(
+          pedidoObj.cliente_nombre,
+          pedidoObj.cliente_tel || '',
+          pedidoObj.direccion || '',
+          pedidoObj.productos,
+          pedidoObj.total,
+          pedidoObj.metodo_pago,
+          pedidoObj.notas || '',
+          pedidoObj.id
+        );
+
+        // 3. Descontar stock del nuevo contenido (si no está cancelado)
+        // Nota: Si el usuario edita un pedido cancelado, probablemente no deberíamos descontar stock 
+        // a menos que cambie el estado, pero cambiarEstado tiene su propia lógica.
+        // Aquí asumimos que si se está editando, el estado se mantiene o se maneja aparte.
+        if (oldPedido.estado !== 'cancelado') {
+          let newProductos = [];
+          try { newProductos = JSON.parse(pedidoObj.productos); } catch (e) { }
+          const alertas = [];
+
+          for (const p of newProductos) {
+            const cant = p.cantidad || 1;
+            if (p.producto_id) {
+              const receta = db.prepare(`SELECT insumo_id, cantidad_necesaria FROM recetas WHERE producto_id = ?`).all(p.producto_id);
+              if (receta.length > 0) {
+                for (const r of receta) {
+                  const descontar = r.cantidad_necesaria * cant;
+                  db.prepare(`UPDATE insumos SET cantidad_actual = cantidad_actual - ? WHERE id = ?`)
+                    .run(descontar, r.insumo_id);
+
+                  const insumo = db.prepare(`SELECT nombre, cantidad_actual, punto_reposicion FROM insumos WHERE id = ?`).get(r.insumo_id);
+                  if (insumo && insumo.cantidad_actual <= insumo.punto_reposicion) {
+                    alertas.push(insumo.nombre);
+                  }
+                }
+              } else {
+                db.prepare(`UPDATE productos SET stock_actual = stock_actual - ? WHERE id = ?`)
+                  .run(cant, p.producto_id);
+              }
+            }
+          }
+          return { alertas: [...new Set(alertas)] };
+        }
+        return { alertas: [] };
+      });
+
+      const res = updateTx(pedido);
+
+      if (res.alertas && res.alertas.length > 0 && Notification.isSupported()) {
+        new Notification({
+          title: '⚠️ Alerta de Stock (Pedido Editado)',
+          body: 'Insumos críticos: ' + res.alertas.join(', ')
+        }).show();
+      }
+
       return { ok: true };
     } catch (err) {
+      console.error('[IPC] pedidos:update error:', err);
       return { ok: false, error: err.message };
     }
   });
@@ -382,11 +455,26 @@ function setupIpcHandlers() {
     } catch (err) { return { ok: false, error: err.message }; }
   });
 
-  ipcMain.handle('inventario:checkStock', async (_, productos) => {
+  ipcMain.handle('inventario:checkStock', async (_, { productos, pedidoId }) => {
     try {
       let enough = true;
       let errors = [];
-      const requirements = {}; 
+      const requirements = {};
+
+      // Si es una edición, sumamos el stock que ya tiene este pedido reservado
+      const reservedQuantities = {};
+      if (pedidoId) {
+        const oldPedido = db.prepare(`SELECT productos FROM pedidos WHERE id = ?`).get(pedidoId);
+        if (oldPedido) {
+          let oldProds = [];
+          try { oldProds = JSON.parse(oldPedido.productos); } catch (e) { }
+          for (const op of oldProds) {
+            if (!op.producto_id) continue;
+            reservedQuantities[op.producto_id] = (reservedQuantities[op.producto_id] || 0) + (op.cantidad || 1);
+          }
+        }
+      }
+
       for (const p of productos) {
         if (!p.producto_id) continue;
         const receta = db.prepare(`SELECT insumo_id, cantidad_necesaria FROM recetas WHERE producto_id = ?`).all(p.producto_id);
@@ -395,22 +483,49 @@ function setupIpcHandlers() {
             requirements[r.insumo_id] = (requirements[r.insumo_id] || 0) + (r.cantidad_necesaria * p.cantidad);
           }
         } else {
-           const prod = db.prepare(`SELECT stock_actual, nombre FROM productos WHERE id = ?`).get(p.producto_id);
-           if (prod && prod.stock_actual < p.cantidad) {
-             enough = false;
-             errors.push(`Sin stock de ${prod.nombre} (Quedan: ${prod.stock_actual})`);
-           }
+          const prod = db.prepare(`SELECT stock_actual, nombre FROM productos WHERE id = ?`).get(p.producto_id);
+          if (prod) {
+            const availableStock = prod.stock_actual + (reservedQuantities[p.producto_id] || 0);
+            if (availableStock < p.cantidad) {
+              enough = false;
+              errors.push(`Sin stock de ${prod.nombre} (Quedan: ${availableStock})`);
+            }
+          }
         }
       }
+
+      // Validar insumos
       for (const [insumo_id, required] of Object.entries(requirements)) {
         const insumo = db.prepare(`SELECT cantidad_actual, nombre, unidad_medida FROM insumos WHERE id = ?`).get(insumo_id);
-        if (insumo && insumo.cantidad_actual < required) {
-           enough = false;
-           errors.push(`Sin stock de ${insumo.nombre} (Faltan ${required - insumo.cantidad_actual} ${insumo.unidad_medida})`);
+        if (insumo) {
+          // Si el producto usa insumos, necesitamos saber cuánto de ese insumo aportaba el pedido anterior
+          let extraInsumoFromOld = 0;
+          if (pedidoId) {
+            const oldPedido = db.prepare(`SELECT productos FROM pedidos WHERE id = ?`).get(pedidoId);
+            if (oldPedido) {
+              let oldProds = [];
+              try { oldProds = JSON.parse(oldPedido.productos); } catch (e) { }
+              for (const op of oldProds) {
+                if (op.producto_id) {
+                  const r = db.prepare(`SELECT cantidad_necesaria FROM recetas WHERE producto_id = ? AND insumo_id = ?`).get(op.producto_id, insumo_id);
+                  if (r) extraInsumoFromOld += (r.cantidad_necesaria * (op.cantidad || 1));
+                }
+              }
+            }
+          }
+
+          const availableInsumo = insumo.cantidad_actual + extraInsumoFromOld;
+          if (availableInsumo < required) {
+            enough = false;
+            errors.push(`Sin stock de ${insumo.nombre} (Faltan ${Math.ceil(required - availableInsumo)} ${insumo.unidad_medida})`);
+          }
         }
       }
       return { ok: true, enough, errors };
-    } catch(err) { return { ok: false, error: err.message }; }
+    } catch (err) {
+      console.error('[checkStock] Error:', err);
+      return { ok: false, error: err.message };
+    }
   });
 
   // ── IMPRESIÓN: Imprimir ticket ────────────────────────────────────────────
@@ -447,11 +562,11 @@ function setupIpcHandlers() {
 
 app.whenReady().then(() => {
   // 1. Inicializar la base de datos (crea tablas si no existen)
-  initDatabase();
+  const db = initDatabase();
   console.log('[Main] Base de datos SQLite inicializada');
 
   // 2. Registrar todos los handlers IPC
-  setupIpcHandlers();
+  setupIpcHandlers(db);
   console.log('[Main] Handlers IPC registrados');
 
   // 3. Crear la ventana principal

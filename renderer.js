@@ -24,6 +24,7 @@ const ESTADOS = {
   nuevo: { label: 'Nuevo', color: '#e74c3c', emoji: '🆕' },
   esperando: { label: 'En Preparacion', color: '#f39c12', emoji: '⏳' },
   listo: { label: 'Listo', color: '#27ae60', emoji: '✅' },
+  entregado: { label: 'Entregado', color: '#3498db', emoji: '✔✔' },
   cancelado: { label: 'Cancelado', color: '#7f8c8d', emoji: '❌' },
 };
 
@@ -114,18 +115,49 @@ function renderizarVista() {
   }
 
   actualizarContadores();
+  mostrarStatsFooter();
+}
+
+function renderizarLista(pedidos) {
+  const container = document.getElementById('lista-pedidos');
+  if (!container) return;
+  if (pedidos.length === 0) {
+    container.innerHTML = '<div class="empty-state">No hay pedidos para esta vista</div>';
+    return;
+  }
+  container.innerHTML = pedidos.map(p => crearListaRowHTML(p)).join('');
+}
+
+function mostrarStatsFooter() {
+  const footer = document.getElementById('stats-footer');
+  if (!footer) return;
+  if (state.vistaActual !== 'lista' || state.filtroEstado !== 'entregado') {
+    footer.innerHTML = '';
+    footer.style.display = 'none';
+    return;
+  }
+  const hoy = new Date().toLocaleDateString('es-AR');
+  const entregadosHoy = state.pedidos.filter(p => 
+    p.estado === 'entregado' && 
+    new Date(p.created_at).toLocaleDateString('es-AR') === hoy
+  );
+  const totalDinero = entregadosHoy.reduce((acc, p) => acc + (parseFloat(p.total) || 0), 0);
+  footer.style.display = 'flex';
+  footer.className = 'stats-footer';
+  footer.innerHTML = `
+    <div class="stats-item">Pedidos Entregados (Hoy): <strong>${entregadosHoy.length}</strong></div>
+    <div class="stats-item">Total Recaudado (Hoy): <strong>$${totalDinero.toLocaleString('es-AR')}</strong></div>
+  `;
 }
 
 function filtrarPedidos(pedidos) {
   if (state.filtroEstado === 'activos') {
     // Las 3 columnas del Kanban: Nuevo, En Preparacion, Listo
-    // Los Cancelados solo se ven en "Todos"
-    return pedidos.filter(p => p.estado !== 'cancelado');
+    return pedidos.filter(p => ['nuevo', 'esperando', 'listo'].includes(p.estado));
   }
   if (state.filtroEstado === 'todos') return pedidos;
-  // La solapa 'Entregados' muestra los pedidos en estado 'listo'
   if (state.filtroEstado === 'entregado') {
-    return pedidos.filter(p => p.estado === 'listo');
+    return pedidos.filter(p => p.estado === 'entregado');
   }
   return pedidos.filter(p => p.estado === state.filtroEstado);
 }
@@ -183,13 +215,21 @@ function renderizarKanban(pedidos) {
       await cambiarEstado(id, 'esperando');
     });
   });
-
   // Botones de acción rápida — listo
   document.querySelectorAll('.quick-btn-listo').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const id = parseInt(btn.dataset.id);
       await cambiarEstado(id, 'listo');
+    });
+  });
+
+  // Botones de acción rápida — entregar
+  document.querySelectorAll('.quick-btn-entregar').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id);
+      await cambiarEstado(id, 'entregado');
     });
   });
 
@@ -346,15 +386,27 @@ function crearCardHTML(pedido) {
         <button class="quick-btn quick-btn-listo" data-id="${pedido.id}" title="Marcar como Listo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </button>
+        ${pedido.estado === 'listo' ? `
+          <button class="quick-btn quick-btn-entregar" data-id="${pedido.id}" title="Marcar como Entregado">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="7 12 12 17 22 7"></polyline>
+              <polyline points="2 12 7 17 12 12"></polyline>
+            </svg>
+          </button>
+        ` : ''}
       </div>
     </div>
   `;
 }
 
 // ─── Modal de pedido ───────────────────────────────────────────────────────
-function abrirModal(id) {
+async function abrirModal(id) {
   const pedido = state.pedidos.find(p => p.id === id);
   if (!pedido) return;
+
+  // Siempre refresca productos para evitar datos desactualizados
+  const res = await window.electronAPI.getProductos();
+  if (res.ok) inventarioState.productos = res.data;
 
   state.pedidoSeleccionado = pedido;
   state.isEditMode = false;
@@ -367,10 +419,9 @@ function abrirModal(id) {
 }
 
 async function abrirModalCrear() {
-  if (inventarioState.productos.length === 0) {
-    const res = await window.electronAPI.getProductos();
-    if (res.ok) inventarioState.productos = res.data;
-  }
+  // Siempre refresca productos para evitar datos desactualizados
+  const res = await window.electronAPI.getProductos();
+  if (res.ok) inventarioState.productos = res.data;
 
   state.pedidoSeleccionado = {
     cliente_nombre: '',
@@ -437,6 +488,7 @@ function renderizarModalContenido() {
             <option value="nuevo"     ${pedido.estado === 'nuevo' ? 'selected' : ''}>🆕 Nuevo</option>
             <option value="esperando" ${pedido.estado === 'esperando' ? 'selected' : ''}>⏳ En Preparacion</option>
             <option value="listo"     ${pedido.estado === 'listo' ? 'selected' : ''}>✅ Listo</option>
+            <option value="entregado" ${pedido.estado === 'entregado' ? 'selected' : ''}>📦 Entregado</option>
           </select>`
       }
         </div>
@@ -550,7 +602,7 @@ function renderizarModalContenido() {
 function generarFilaProducto(p, idx) {
   let nameInput = '';
 
-  if (state.isCreateMode && inventarioState.productos.length > 0) {
+  if (inventarioState.productos.length > 0) {
     const options = inventarioState.productos.map(prod =>
       `<option value="${prod.id}" data-precio="${prod.precio}" ${p.producto_id == prod.id ? 'selected' : ''}>${escapeHtml(prod.nombre)} - $${prod.precio}</option>`
     ).join('');
@@ -609,18 +661,17 @@ async function recalcularTotal() {
     const precio = parseFloat(row.querySelector('.prod-edit-precio').value) || 0;
     total += cant * precio;
 
-    if (state.isCreateMode) {
-      const select = row.querySelector('.prod-edit-select');
-      if (select && select.value) {
-        productosSeleccionados.push({ producto_id: parseInt(select.value), cantidad: cant });
-      }
+    const select = row.querySelector('.prod-edit-select');
+    if (select && select.value) {
+      productosSeleccionados.push({ producto_id: parseInt(select.value), cantidad: cant });
     }
   });
 
   document.getElementById('edit-total').value = total;
 
-  if (state.isCreateMode && productosSeleccionados.length > 0) {
-    const res = await window.electronAPI.checkStock(productosSeleccionados);
+  if (productosSeleccionados.length > 0) {
+    const pedidoId = (!state.isCreateMode && state.pedidoSeleccionado) ? state.pedidoSeleccionado.id : null;
+    const res = await window.electronAPI.checkStock({ productos: productosSeleccionados, pedidoId });
     const btnGuardar = document.getElementById('btn-guardar-pedido');
     const errorMsg = document.getElementById('error-msg');
 
@@ -630,8 +681,8 @@ async function recalcularTotal() {
       mostrarError('Stock insuficiente: ' + res.errors.join(' | '));
     } else {
       btnGuardar.disabled = false;
-      btnGuardar.textContent = '💾 Guardar Pedido';
-      if (errorMsg.style.display === 'block') errorMsg.style.display = 'none';
+      btnGuardar.textContent = state.isCreateMode ? '💾 Guardar Pedido' : '💾 Guardar Cambios';
+      if (errorMsg && errorMsg.style.display === 'block') errorMsg.style.display = 'none';
     }
   }
 }
@@ -657,17 +708,14 @@ async function guardarPedidoEditado() {
     let nombre = '';
     let producto_id = null;
 
-    if (isCreate) {
-      const select = row.querySelector('.prod-edit-select');
-      if (select) {
-        const option = select.options[select.selectedIndex];
-        nombre = option ? option.text.split(' - $')[0] : '';
-        producto_id = parseInt(select.value) || null;
-      } else {
-        nombre = row.querySelector('.prod-edit-nombre').value;
-      }
+    const select = row.querySelector('.prod-edit-select');
+    if (select) {
+      const option = select.options[select.selectedIndex];
+      nombre = option ? option.text.split(' - $')[0] : '';
+      producto_id = parseInt(select.value) || null;
     } else {
-      nombre = row.querySelector('.prod-edit-nombre').value;
+      const inputNombre = row.querySelector('.prod-edit-nombre');
+      nombre = inputNombre ? inputNombre.value : '';
     }
 
     productos.push({
@@ -919,6 +967,7 @@ function actualizarContadores() {
     nuevo: state.pedidos.filter(p => p.estado === 'nuevo').length,
     en_preparacion: state.pedidos.filter(p => p.estado === 'en_preparacion').length,
     listo: state.pedidos.filter(p => p.estado === 'listo').length,
+    entregado: state.pedidos.filter(p => p.estado === 'entregado').length,
   };
 
   const badge = document.getElementById('badge-nuevos');
@@ -966,7 +1015,6 @@ let inventarioState = {
   productos: [],
   categorias: [],
   tabActual: 'insumos',
-  productoSeleccionadoId: null
 };
 
 function setupInventarioListeners() {
@@ -1107,7 +1155,11 @@ async function cargarCategoriasYSelects() {
     const fillSelect = (id, optionsArray, defaultText) => {
       const el = document.getElementById(id);
       if(!el) return;
+      const currentVal = el.value; // Guardar valor actual
       el.innerHTML = '<option value="">' + defaultText + '</option>' + optionsArray.map(c => '<option value="'+c.id+'">'+escapeHtml(c.nombre)+'</option>').join('');
+      if (currentVal && Array.from(el.options).some(o => o.value === currentVal)) {
+        el.value = currentVal; // Restaurar si aún existe
+      }
     };
 
     fillSelect('producto-categoria', inventarioState.categorias, 'Sin Categoría');
@@ -1152,7 +1204,8 @@ async function renderizarInventario() {
       const filtrados = filtro ? res.data.filter(p => p.categoria_id == filtro) : res.data;
       const html = filtrados.map(p => {
         const color = p.categoria_color || 'var(--surface2)';
-        const catName = p.categoria_id ? inventarioState.categorias.find(c => c.id === p.categoria_id)?.nombre : 'Sin Categoría';
+        const catObj = p.categoria_id ? inventarioState.categorias.find(c => c.id === p.categoria_id) : null;
+        const catName = catObj ? catObj.nombre : 'Sin Categoría';
         return '<div class="pedido-card" style="display:flex; justify-content:space-between; align-items:center;">' +
                '  <div><strong>' + escapeHtml(p.nombre) + '</strong> <span class="badge" style="background:'+color+'; color:#fff">' + escapeHtml(catName) + '</span></div>' +
                '  <div><button class="btn btn-secondary btn-small btn-editar-producto" data-id="' + p.id + '">✏️</button>' +
@@ -1239,39 +1292,24 @@ function agregarFilaReceta(data = null) {
 
 async function guardarReceta() {
   const productoId = parseInt(document.getElementById('receta-producto-select').value);
-  console.log('[DEBUG] Intentando guardar receta para Producto ID:', productoId);
-  
-  if (!productoId) {
-    console.warn('[WARN] No se seleccionó ningún producto para la receta');
-    return mostrarToast('Selecciona un producto', 'error');
-  }
+  if (!productoId) return mostrarToast('Selecciona un producto', 'error');
   
   const items = [];
-  document.querySelectorAll('.receta-item-row').forEach((row, index) => {
+  document.querySelectorAll('.receta-item-row').forEach(row => {
     const insumo_id = parseInt(row.querySelector('.select-insumo').value);
     const cant = parseFloat(row.querySelector('.input-cant-insumo').value);
-    console.log(`[DEBUG] Fila ${index}: Insumo ID = ${insumo_id}, Cantidad = ${cant}`);
-    if (insumo_id && cant > 0) {
-      items.push({ insumo_id, cantidad_necesaria: cant });
-    }
+    if (insumo_id && cant > 0) items.push({ insumo_id, cantidad_necesaria: cant });
   });
   
-  console.log('[DEBUG] Items finales de la receta:', items);
-  
-  if (items.length === 0) {
-    console.warn('[WARN] La receta no tiene items válidos');
-    return mostrarToast('Agrega al menos un insumo con cantidad', 'error');
-  }
+  if (items.length === 0) return mostrarToast('Agrega al menos un insumo con cantidad', 'error');
 
   const res = await window.electronAPI.saveReceta(productoId, items);
-  console.log('[DEBUG] Respuesta del servidor (saveReceta):', res);
-  
   if (res.ok) {
     document.getElementById('modal-receta').classList.remove('visible');
     renderizarInventario();
     mostrarToast('Receta guardada', 'success');
   } else {
-    console.error('[ERROR] Fallo al guardar receta:', res.error);
+    console.error('[Receta] Error al guardar:', res.error);
     mostrarToast('Error: ' + res.error, 'error');
   }
 }
@@ -1296,18 +1334,20 @@ function editarInsumo(id) {
   document.getElementById('modal-insumo').classList.add("visible");
 }
 async function guardarInsumo() {
+  const nombre = document.getElementById('insumo-nombre').value.trim();
+  if (!nombre) return mostrarToast('El nombre del insumo es obligatorio', 'error');
+  const idRaw = document.getElementById('insumo-id').value;
   const data = {
-    id: document.getElementById('insumo-id').value,
-    nombre: document.getElementById('insumo-nombre').value,
+    id: idRaw ? parseInt(idRaw) : null,
+    nombre,
     unidad_medida: document.getElementById('insumo-unidad').value,
     cantidad_actual: parseFloat(document.getElementById('insumo-cantidad').value) || 0,
     punto_reposicion: parseFloat(document.getElementById('insumo-alerta').value) || 0,
     categoria_id: parseInt(document.getElementById('insumo-categoria').value) || null
   };
-  console.log('[DEBUG] Guardando Insumo:', data);
-  let res = data.id ? await window.electronAPI.updateInsumo(data) : await window.electronAPI.createInsumo(data);
-  if (res.ok) { document.getElementById('modal-insumo').classList.remove("visible"); renderizarInventario(); checkAlerts(); }
-  else console.error('[ERROR] Guardar Insumo:', res.error);
+  const res = data.id ? await window.electronAPI.updateInsumo(data) : await window.electronAPI.createInsumo(data);
+  if (res.ok) { document.getElementById('modal-insumo').classList.remove('visible'); renderizarInventario(); checkAlerts(); }
+  else { console.error('[Insumo] Error al guardar:', res.error); mostrarToast('Error: ' + res.error, 'error'); }
 }
 async function eliminarInsumo(id) { if (confirm("¿Eliminar insumo?")) { await window.electronAPI.deleteInsumo(id); renderizarInventario(); } }
 
@@ -1322,19 +1362,19 @@ function editarProducto(id) {
   document.getElementById('modal-producto').classList.add("visible");
 }
 async function guardarProducto() {
-  const catId = parseInt(document.getElementById('producto-categoria').value) || null;
+  const nombre = document.getElementById('producto-nombre').value.trim();
+  if (!nombre) return mostrarToast('El nombre del producto es obligatorio', 'error');
+  const idRaw = document.getElementById('producto-id').value;
   const data = {
-    id: document.getElementById('producto-id').value, nombre: document.getElementById('producto-nombre').value,
-    categoria_id: catId, precio: parseFloat(document.getElementById('producto-precio').value) || 0,
+    id: idRaw ? parseInt(idRaw) : null,
+    nombre,
+    categoria_id: parseInt(document.getElementById('producto-categoria').value) || null,
+    precio: parseFloat(document.getElementById('producto-precio').value) || 0,
     stock_actual: parseInt(document.getElementById('producto-stock').value) || 0,
   };
-  console.log('[DEBUG] Guardando Producto:', data);
-  let res = data.id ? await window.electronAPI.updateProducto(data) : await window.electronAPI.createProducto(data);
-  if (res.ok) { document.getElementById('modal-producto').classList.remove("visible"); renderizarInventario(); }
-  else {
-    console.error('[ERROR] Guardar Producto:', res.error);
-    mostrarToast('Error al guardar: ' + res.error, 'error');
-  }
+  const res = data.id ? await window.electronAPI.updateProducto(data) : await window.electronAPI.createProducto(data);
+  if (res.ok) { document.getElementById('modal-producto').classList.remove('visible'); renderizarInventario(); }
+  else { console.error('[Producto] Error al guardar:', res.error); mostrarToast('Error al guardar: ' + res.error, 'error'); }
 }
 async function eliminarProducto(id) { if (confirm("¿Eliminar producto?")) { await window.electronAPI.deleteProducto(id); renderizarInventario(); } }
 
@@ -1348,13 +1388,17 @@ function editarCategoria(id) {
   document.getElementById('modal-categoria').classList.add("visible");
 }
 async function guardarCategoria() {
+  const nombre = document.getElementById('categoria-nombre').value.trim();
+  if (!nombre) return mostrarToast('El nombre de la categoría es obligatorio', 'error');
+  const idRaw = document.getElementById('categoria-id').value;
   const data = {
-    id: document.getElementById('categoria-id').value, nombre: document.getElementById('categoria-nombre').value,
-    tipo: document.getElementById('categoria-tipo').value, color: document.getElementById('categoria-color').value,
+    id: idRaw ? parseInt(idRaw) : null,
+    nombre,
+    tipo: document.getElementById('categoria-tipo').value || 'general',
+    color: document.getElementById('categoria-color').value || '#4b6584',
   };
-  console.log('[DEBUG] Guardando Categoria:', data);
-  let res = data.id ? await window.electronAPI.updateCategoria(data) : await window.electronAPI.createCategoria(data);
-  if (res.ok) { document.getElementById('modal-categoria').classList.remove("visible"); renderizarInventario(); }
-  else console.error('[ERROR] Guardar Categoria:', res.error);
+  const res = data.id ? await window.electronAPI.updateCategoria(data) : await window.electronAPI.createCategoria(data);
+  if (res.ok) { document.getElementById('modal-categoria').classList.remove('visible'); renderizarInventario(); }
+  else { console.error('[Categoria] Error al guardar:', res.error); mostrarToast('Error: ' + res.error, 'error'); }
 }
 async function eliminarCategoria(id) { if (confirm("¿Eliminar categoría?")) { await window.electronAPI.deleteCategoria(id); renderizarInventario(); } }

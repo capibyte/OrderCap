@@ -27,7 +27,9 @@
   --shadow: 0 4px 20px rgba(0,0,0,0.4);
   --transition: 0.15s ease;
 
+  --info: #3498db;
   --header-h: 56px;
+  --footer-h: 40px;
 }
 
 /* ── Reset ─────────────────────────────────────────────────────────────── */
@@ -539,3 +541,46 @@ textarea.edit-input { resize: vertical; min-height: 60px; }
 #lista-productos-receta li.activo { background: var(--primary); color: white; }
 
 .receta-item-row { display: grid; grid-template-columns: 1fr 100px 100px 40px; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+
+/* ── Stats Footer ───────────────────────────────────────────────────────── */
+.stats-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--footer-h);
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  z-index: 90;
+  padding: 0 20px;
+  font-size: 13px;
+  color: var(--text2);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.stats-item strong {
+  color: #2ecc71;
+  font-size: 15px;
+  margin-left: 5px;
+}
+
+.quick-btn-entregar {
+  border-color: var(--info) !important;
+  color: var(--info) !important;
+}
+
+.quick-btn-entregar:hover {
+  background: var(--info) !important;
+  color: #fff !important;
+  transform: scale(1.1);
+  box-shadow: 0 0 8px rgba(52, 152, 219, 0.5);
+}
