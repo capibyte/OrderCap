@@ -24,18 +24,27 @@
       <h1>🍔 Burger Orders</h1>
       <span id="badge-nuevos" class="badge-nuevos"></span>
     </div>
-    <div class="header-center" id="header-filters" style="display:none">
-      <button data-filtro="todos" class="filtro-btn filtro-activo">Todos</button>
-      <button data-filtro="entregado" class="filtro-btn">Entregados</button>
-      <button data-filtro="cancelado" class="filtro-btn">Cancelados</button>
+    <div class="header-center-tienda">
+      <button id="btn-tienda" class="btn-tienda cerrada" title="Estado de la tienda">
+        <span id="btn-tienda-icon">🔴</span>
+        <span id="btn-tienda-text">¿Abrimos la Tienda?</span>
+      </button>
     </div>
     <div class="header-right">
       <button id="btn-vista-kanban" class="vista-btn" title="Vista Kanban">Pedidos</button>
       <button id="btn-vista-lista" class="vista-btn" title="Vista Lista">Todos</button>
       <button id="btn-vista-inventario" class="vista-btn" title="Depósito / Inventario">📦</button>
+      <button id="btn-vista-historial" class="vista-btn" title="Historial de Ventas">📋</button>
       <span class="polling-indicator" title="Actualizando en tiempo real">●</span>
     </div>
   </header>
+
+  <!-- ── Sub-barra de Filtros (vista Lista) ────────────────────── -->
+  <div id="header-filters" class="filtros-subbar" style="display:none">
+    <button data-filtro="todos" class="filtro-btn filtro-activo">Todos</button>
+    <button data-filtro="entregado" class="filtro-btn">Entregados</button>
+    <button data-filtro="cancelado" class="filtro-btn">Cancelados</button>
+  </div>
 
   <!-- ── Kanban Board ──────────────────────────────────────────── -->
   <main id="vista-kanban" class="kanban-board">
@@ -275,7 +284,7 @@
   <!-- ── Error ──────────────────────────────────────────────────── -->
   <div id="error-msg" class="error-msg" style="display:none"></div>
 
-  <!-- ── Toast container (se crea dinámicamente) ──────────────── -->
+  <!-- ── Toast container ──────────────────────────────────────────── -->
   <div id="toast-container"></div>
 
   <!-- ── Floating Action Button (FAB) ──────────────────────────── -->
@@ -289,7 +298,60 @@
   <!-- ── Stats Footer ───────────────────────────────────────────── -->
   <div id="stats-footer"></div>
 
+  <!-- ── Vista Historial ────────────────────────────────────────── -->
+  <section id="vista-historial" class="historial-view" style="display:none">
+    <div class="historial-header">
+      <h2>📋 Historial</h2>
+      <div class="historial-tabs">
+        <button id="tab-ventas" class="historial-tab activo" data-tab="ventas">💰 Ventas</button>
+        <button id="tab-archivados" class="historial-tab" data-tab="archivados">📦 Archivados</button>
+      </div>
+      <button id="btn-exportar-csv" class="btn btn-primary">⬇️ Exportar CSV</button>
+    </div>
+    <div id="historial-ventas" class="historial-content"></div>
+    <div id="historial-archivados" class="historial-content" style="display:none"></div>
+  </section>
+
+  <!-- ── Modal Apertura de Tienda ───────────────────────────────── -->
+  <div id="modal-apertura" class="modal-overlay">
+    <div class="modal-container modal-apertura-box">
+      <div class="modal-apertura-header">
+        <h2>🌅 Revisión de Stock — Apertura del Día</h2>
+        <p class="modal-subtitle">Verificá y ajustá el stock antes de abrir. Los cambios se guardan en el inventario.</p>
+      </div>
+      <div class="modal-apertura-body">
+        <div class="stock-seccion">
+          <h3>🍔 Productos</h3>
+          <div id="apertura-productos"></div>
+        </div>
+        <div class="stock-seccion">
+          <h3>🧴 Insumos</h3>
+          <div id="apertura-insumos"></div>
+        </div>
+      </div>
+      <div class="modal-apertura-footer">
+        <button id="btn-cancelar-apertura" class="btn btn-secondary">Cancelar</button>
+        <button id="btn-confirmar-apertura" class="btn btn-success">✅ Abrir Tienda</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal Cierre de Tienda ─────────────────────────────────── -->
+  <div id="modal-cierre" class="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-apertura-header">
+        <h2>🌙 Cierre del Día</h2>
+        <p class="modal-subtitle">Resumen de lo que sucedió hoy.</p>
+      </div>
+      <div id="cierre-resumen" class="cierre-resumen"></div>
+      <div class="modal-apertura-footer">
+        <button id="btn-cancelar-cierre" class="btn btn-secondary">Cancelar</button>
+        <button id="btn-confirmar-cierre" class="btn btn-warning">🔒 Cerrar el Día</button>
+      </div>
+    </div>
+  </div>
+
   <script src="renderer.js"></script>
 </body>
 
-</html>
+</html>

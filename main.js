@@ -556,6 +556,221 @@ function setupIpcHandlers(db) {
       new Notification({ title, body }).show();
     }
   });
+
+  // ── TIENDA: Estado ────────────────────────────────────────────────────────
+  ipcMain.handle('tienda:getStatus', async () => {
+    try {
+      const row = db.prepare(`SELECT valor FROM configuracion WHERE clave = 'tienda_abierta'`).get();
+      return { ok: true, abierta: row ? row.valor === '1' : false };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ── TIENDA: Abrir ─────────────────────────────────────────────────────────
+  ipcMain.handle('tienda:abrirTienda', async () => {
+    try {
+      const fs = require('fs');
+
+      // 1. Archivar todos los pedidos del día anterior para limpiar las vistas diarias
+      db.prepare(`
+        UPDATE pedidos SET archivado = 1, updated_at = datetime('now')
+        WHERE archivado = 0
+      `).run();
+
+      // 2. Purga por mes calendario completo
+      //    Mantenemos: mes actual + 2 meses anteriores completos
+      //    Ejemplo: En Junio, guardamos Junio, Mayo y Abril → purgamos Marzo y anteriores
+      const hoy = new Date();
+      // Primer día del mes de hace 2 meses (límite de retención)
+      const limiteFecha = new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1);
+      const limiteStr = limiteFecha.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      // Buscar pedidos entregados más viejos que el límite
+      const pedidosViejos = db.prepare(`
+        SELECT * FROM pedidos
+        WHERE estado = 'entregado'
+        AND date(created_at) < ?
+        ORDER BY created_at ASC
+      `).all(limiteStr);
+
+      if (pedidosViejos.length > 0) {
+        // Agrupar por mes (MM-YYYY)
+        const porMes = {};
+        for (const p of pedidosViejos) {
+          const fecha = new Date(p.created_at);
+          const key = `${String(fecha.getMonth() + 1).padStart(2, '0')}-${fecha.getFullYear()}`;
+          if (!porMes[key]) porMes[key] = [];
+          porMes[key].push(p);
+        }
+
+        // Crear carpeta "Historial de venta" si no existe
+        const carpetaHistorial = path.join(__dirname, 'Historial de venta');
+        if (!fs.existsSync(carpetaHistorial)) {
+          fs.mkdirSync(carpetaHistorial, { recursive: true });
+        }
+
+        // Generar un CSV por cada mes y guardar
+        const cabecera = 'ID,Numero Pedido,Cliente,Telefono,Direccion,Productos,Total,Metodo Pago,Estado,Notas,Fecha\n';
+        for (const [mes, pedidos] of Object.entries(porMes)) {
+          const rutaCSV = path.join(carpetaHistorial, `${mes}.csv`);
+          let contenido = cabecera;
+          for (const p of pedidos) {
+            const productos = (() => { try { return JSON.parse(p.productos).map(x => `${x.cantidad || 1}x ${x.nombre || x.name}`).join(' | '); } catch { return p.productos; } })();
+            const fila = [
+              p.id, p.numero_pedido, p.cliente_nombre, p.cliente_tel || '',
+              p.direccion || '', `"${productos}"`, p.total,
+              p.metodo_pago, p.estado, p.notas || '', p.created_at
+            ].join(',');
+            contenido += fila + '\n';
+          }
+          fs.writeFileSync(rutaCSV, contenido, 'utf8');
+        }
+
+        // Eliminar esos pedidos viejos de la base de datos
+        db.prepare(`
+          DELETE FROM pedidos WHERE estado = 'entregado' AND date(created_at) < ?
+        `).run(limiteStr);
+      }
+
+      // 3. Marcar tienda como abierta
+      db.prepare(`UPDATE configuracion SET valor = '1' WHERE clave = 'tienda_abierta'`).run();
+
+      return { ok: true };
+    } catch (err) {
+      console.error('[tienda:abrirTienda] Error:', err);
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ── TIENDA: Cerrar ────────────────────────────────────────────────────────
+  ipcMain.handle('tienda:cerrarTienda', async () => {
+    try {
+      db.prepare(`UPDATE configuracion SET valor = '0' WHERE clave = 'tienda_abierta'`).run();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ── TIENDA: Stock para checklist de apertura ──────────────────────────────
+  ipcMain.handle('tienda:getStockApertura', async () => {
+    try {
+      const productos = db.prepare(`SELECT id, nombre, stock_actual FROM productos WHERE stock_actual > 0 ORDER BY nombre ASC`).all();
+      const insumos = db.prepare(`SELECT id, nombre, cantidad_actual, unidad_medida FROM insumos WHERE cantidad_actual > 0 ORDER BY nombre ASC`).all();
+      return { ok: true, productos, insumos };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ── TIENDA: Actualizar stock desde checklist ──────────────────────────────
+  ipcMain.handle('tienda:updateStock', async (_, { productos, insumos }) => {
+    try {
+      const tx = db.transaction(() => {
+        for (const p of (productos || [])) {
+          db.prepare(`UPDATE productos SET stock_actual = ? WHERE id = ?`).run(p.stock_actual, p.id);
+        }
+        for (const i of (insumos || [])) {
+          db.prepare(`UPDATE insumos SET cantidad_actual = ? WHERE id = ?`).run(i.cantidad_actual, i.id);
+        }
+      });
+      tx();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ── HISTORIAL: Pedidos entregados (últimos 3 meses calendario) ────────────
+  ipcMain.handle('historial:getPedidos', async () => {
+    try {
+      const hoy = new Date();
+      // Primer día del mes de hace 2 meses (inicio del rango de 3 meses)
+      const desde = new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1);
+      const desdeStr = desde.toISOString().split('T')[0];
+
+      const pedidos = db.prepare(`
+        SELECT * FROM pedidos
+        WHERE estado = 'entregado'
+        AND date(created_at) >= ?
+        ORDER BY created_at DESC
+      `).all(desdeStr);
+      return { ok: true, data: pedidos };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ── HISTORIAL: Pedidos archivados ─────────────────────────────────────────
+  ipcMain.handle('historial:getArchivados', async () => {
+    try {
+      const pedidos = db.prepare(`
+        SELECT * FROM pedidos
+        WHERE archivado = 1 AND estado NOT IN ('entregado', 'cancelado')
+        ORDER BY created_at DESC
+        LIMIT 200
+      `).all();
+      return { ok: true, data: pedidos };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ── HISTORIAL: Desarchivar un pedido ─────────────────────────────────────
+  ipcMain.handle('historial:desarchivar', async (_, id) => {
+    try {
+      db.prepare(`UPDATE pedidos SET archivado = 0, updated_at = datetime('now') WHERE id = ?`).run(id);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ── HISTORIAL: Exportar CSV manual (el usuario elige la ruta) ────────────
+  ipcMain.handle('historial:exportarCSV', async () => {
+    try {
+      const { dialog } = require('electron');
+
+      const hoy = new Date();
+      const desde = new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1);
+      const desdeStr = desde.toISOString().split('T')[0];
+
+      const pedidos = db.prepare(`
+        SELECT * FROM pedidos
+        WHERE estado = 'entregado'
+        AND date(created_at) >= ?
+        ORDER BY created_at DESC
+      `).all(desdeStr);
+
+      const { filePath } = await dialog.showSaveDialog(mainWindow, {
+        title: 'Exportar Historial de Ventas',
+        defaultPath: `Historial_Ventas_${hoy.toISOString().split('T')[0]}.csv`,
+        filters: [{ name: 'CSV', extensions: ['csv'] }]
+      });
+
+      if (!filePath) return { ok: false, error: 'Cancelado por el usuario' };
+
+      const fs = require('fs');
+      const cabecera = 'ID,Numero Pedido,Cliente,Telefono,Direccion,Productos,Total,Metodo Pago,Notas,Fecha\n';
+      let contenido = cabecera;
+      for (const p of pedidos) {
+        const productos = (() => { try { return JSON.parse(p.productos).map(x => `${x.cantidad || 1}x ${x.nombre || x.name}`).join(' | '); } catch { return p.productos; } })();
+        const fila = [
+          p.id, p.numero_pedido, `"${p.cliente_nombre}"`, p.cliente_tel || '',
+          p.direccion || '', `"${productos}"`, p.total,
+          p.metodo_pago, `"${p.notas || ''}"`, p.created_at
+        ].join(',');
+        contenido += fila + '\n';
+      }
+      fs.writeFileSync(filePath, contenido, 'utf8');
+
+      return { ok: true, filePath };
+    } catch (err) {
+      console.error('[historial:exportarCSV] Error:', err);
+      return { ok: false, error: err.message };
+    }
+  });
 }
 
 // ─── Ciclo de vida de la app ───────────────────────────────────────────────

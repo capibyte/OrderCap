@@ -139,7 +139,47 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   off: (channel, callback) => {
     ipcRenderer.removeListener(channel, callback);
-  }
+  },
+
+  // ─── TIENDA ─────────────────────────────────────────────────────────────
+
+  /** Obtener si la tienda está abierta o cerrada */
+  getTiendaStatus: () =>
+    ipcRenderer.invoke('tienda:getStatus'),
+
+  /** Abrir tienda: archiva pendientes y purga meses viejos */
+  abrirTienda: () =>
+    ipcRenderer.invoke('tienda:abrirTienda'),
+
+  /** Cerrar tienda */
+  cerrarTienda: () =>
+    ipcRenderer.invoke('tienda:cerrarTienda'),
+
+  /** Obtener stock para el checklist de apertura */
+  getStockApertura: () =>
+    ipcRenderer.invoke('tienda:getStockApertura'),
+
+  /** Actualizar stock desde el checklist de apertura */
+  updateStockApertura: (data) =>
+    ipcRenderer.invoke('tienda:updateStock', data),
+
+  // ─── HISTORIAL ──────────────────────────────────────────────────────────
+
+  /** Pedidos entregados de los últimos 3 meses calendario */
+  getHistorialPedidos: () =>
+    ipcRenderer.invoke('historial:getPedidos'),
+
+  /** Pedidos archivados (quedaron pendientes al abrir tienda) */
+  getHistorialArchivados: () =>
+    ipcRenderer.invoke('historial:getArchivados'),
+
+  /** Desarchivar un pedido para que vuelva al flujo activo */
+  desarchivarPedido: (id) =>
+    ipcRenderer.invoke('historial:desarchivar', id),
+
+  /** Exportar historial de ventas a CSV con diálogo de guardado */
+  exportarHistorialCSV: () =>
+    ipcRenderer.invoke('historial:exportarCSV'),
 });
 
 // ── Información de la plataforma (read-only, sin IPC) ─────────────────────

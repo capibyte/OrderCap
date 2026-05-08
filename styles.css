@@ -70,8 +70,23 @@ body {
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 20px;
   gap: 16px;
-  -webkit-app-region: drag; /* Permite arrastrar la ventana desde el header */
+  -webkit-app-region: drag;
   position: sticky; top: 0; z-index: 100;
+}
+
+/* Sub-barra de filtros — aparece debajo del header en la vista Lista */
+.filtros-subbar {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 90;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 20px;
+  -webkit-app-region: no-drag;
 }
 
 .header-left { display: flex; align-items: center; gap: 10px; }
@@ -583,4 +598,216 @@ textarea.edit-input { resize: vertical; min-height: 60px; }
   color: #fff !important;
   transform: scale(1.1);
   box-shadow: 0 0 8px rgba(52, 152, 219, 0.5);
+}
+
+/* ── Botón Tienda ──────────────────────────────────────────────────────── */
+.header-center-tienda {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+}
+
+.btn-tienda {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  border-radius: 20px;
+  border: 2px solid;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: transparent;
+}
+
+.btn-tienda.cerrada {
+  border-color: #e74c3c;
+  color: #e74c3c;
+}
+.btn-tienda.cerrada:hover {
+  background: #e74c3c;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(231, 76, 60, 0.4);
+}
+
+.btn-tienda.abierta {
+  border-color: #27ae60;
+  color: #27ae60;
+}
+.btn-tienda.abierta:hover {
+  background: #27ae60;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(39, 174, 96, 0.4);
+}
+
+/* ── Modal Apertura/Cierre ─────────────────────────────────────────────── */
+.modal-apertura-box {
+  max-width: 600px;
+  width: 95%;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-apertura-header { margin-bottom: 16px; }
+.modal-apertura-header h2 { font-size: 20px; margin-bottom: 6px; }
+.modal-subtitle { color: var(--text2); font-size: 13px; }
+
+.modal-apertura-body {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding-right: 4px;
+}
+
+.stock-seccion h3 { font-size: 14px; margin-bottom: 12px; color: var(--text2); }
+
+.apertura-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.apertura-nombre { font-size: 13px; }
+.apertura-input {
+  width: 70px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 4px 8px;
+  font-size: 13px;
+  text-align: right;
+}
+.apertura-unidad { font-size: 12px; color: var(--text3); }
+
+.modal-apertura-footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Modal Cierre ─────────────────────────────────────────────────────── */
+.cierre-resumen {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 16px 0;
+}
+.cierre-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  background: var(--surface2);
+  border-radius: var(--radius);
+}
+.cierre-stat-label { color: var(--text2); font-size: 14px; }
+.cierre-stat-valor { font-size: 22px; font-weight: 700; }
+.cierre-stat-valor.verde { color: #2ecc71; }
+
+/* ── Vista Historial ───────────────────────────────────────────────────── */
+.historial-view {
+  flex-direction: column;
+  height: calc(100vh - var(--header-h));
+  margin-top: var(--header-h);
+  overflow: hidden;
+  padding: 20px;
+  gap: 16px;
+}
+
+.historial-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+.historial-header h2 { font-size: 20px; }
+
+.historial-tabs {
+  display: flex;
+  gap: 6px;
+  margin-right: auto;
+}
+.historial-tab {
+  padding: 6px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+.historial-tab.activo {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.historial-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.historial-mes {
+  background: var(--surface);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.historial-mes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+}
+.historial-mes-header h3 { font-size: 15px; }
+.historial-mes-total { font-size: 13px; color: var(--text2); }
+.historial-mes-total strong { color: #2ecc71; }
+
+.historial-tabla { overflow-x: auto; }
+.historial-tabla-header,
+.historial-tabla-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 1.5fr 90px 90px 90px;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: 13px;
+  align-items: center;
+}
+.historial-tabla-header {
+  background: var(--bg3);
+  color: var(--text3);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.historial-tabla-row {
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.historial-tabla-row:hover { background: var(--surface2); }
+.hist-numero { color: var(--primary); font-weight: 600; }
+.hist-total { color: #2ecc71; font-weight: 600; }
+.hist-prods { color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-fecha { color: var(--text3); }
+
+/* Cuando tabla de archivados tiene 6 columnas con accion */
+#historial-archivados .historial-tabla-header,
+#historial-archivados .historial-tabla-row {
+  grid-template-columns: 90px 1fr 100px 90px 90px 90px;
 }

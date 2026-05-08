@@ -7,14 +7,15 @@
 
 // ─── Estado de la aplicación ──────────────────────────────────────────────
 const state = {
-  pedidos: [],           // Array de todos los pedidos activos
-  lastCheck: null,       // ISO string de la última consulta (para polling)
-  pollingInterval: null, // Referencia al setInterval del polling
-  vistaActual: 'kanban', // 'kanban' | 'lista'
-  filtroEstado: 'activos', // 'activos' | 'todos' | estado específico
+  pedidos: [],
+  lastCheck: null,
+  pollingInterval: null,
+  vistaActual: 'kanban',
+  filtroEstado: 'activos',
   pedidoSeleccionado: null,
   isEditMode: false,
   isCreateMode: false,
+  tiendaAbierta: false,
 };
 
 // ─── Constantes ────────────────────────────────────────────────────────────
@@ -37,8 +38,10 @@ let draggedPedidoId = null;
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('[Renderer] App inicializada');
   await cargarPedidosIniciales();
+  await inicializarEstadoTienda();
   iniciarPolling();
   setupEventListeners();
+  setupTiendaListeners();
 });
 
 // ─── Carga inicial ─────────────────────────────────────────────────────────
@@ -87,31 +90,39 @@ function iniciarPolling() {
 
 // ─── Renderizado principal ─────────────────────────────────────────────────
 function renderizarVista() {
+  // Los pedidos activos excluyen archivados y solo muestran los del flujo principal
   const pedidosFiltrados = filtrarPedidos(state.pedidos);
 
   const vistaKanban = document.getElementById('vista-kanban');
   const vistaLista = document.getElementById('vista-lista');
   const vistaInventario = document.getElementById('vista-inventario');
+  const vistaHistorial = document.getElementById('vista-historial');
   const headerFilters = document.getElementById('header-filters');
+  const fab = document.getElementById('btn-fab-crear');
+
+  // Ocultar todo primero
+  if (vistaKanban) vistaKanban.style.display = 'none';
+  if (vistaLista) vistaLista.style.display = 'none';
+  if (vistaInventario) vistaInventario.style.display = 'none';
+  if (vistaHistorial) vistaHistorial.style.display = 'none';
+  if (headerFilters) headerFilters.style.display = 'none';
+  if (fab) fab.style.display = 'flex';
 
   if (state.vistaActual === 'kanban') {
     if (vistaKanban) vistaKanban.style.display = 'grid';
-    if (vistaLista) vistaLista.style.display = 'none';
-    if (vistaInventario) vistaInventario.style.display = 'none';
-    if (headerFilters) headerFilters.style.display = 'none';
     renderizarKanban(pedidosFiltrados);
   } else if (state.vistaActual === 'lista') {
-    if (vistaKanban) vistaKanban.style.display = 'none';
     if (vistaLista) vistaLista.style.display = 'block';
-    if (vistaInventario) vistaInventario.style.display = 'none';
     if (headerFilters) headerFilters.style.display = 'flex';
     renderizarLista(pedidosFiltrados);
   } else if (state.vistaActual === 'inventario') {
-    if (vistaKanban) vistaKanban.style.display = 'none';
-    if (vistaLista) vistaLista.style.display = 'none';
     if (vistaInventario) vistaInventario.style.display = 'block';
-    if (headerFilters) headerFilters.style.display = 'none';
+    if (fab) fab.style.display = 'none';
     renderizarInventario();
+  } else if (state.vistaActual === 'historial') {
+    if (vistaHistorial) vistaHistorial.style.display = 'flex';
+    if (fab) fab.style.display = 'none';
+    cargarHistorial();
   }
 
   actualizarContadores();
@@ -151,15 +162,17 @@ function mostrarStatsFooter() {
 }
 
 function filtrarPedidos(pedidos) {
+  // Siempre excluir pedidos archivados del flujo diario
+  const activos = pedidos.filter(p => !p.archivado);
+
   if (state.filtroEstado === 'activos') {
-    // Las 3 columnas del Kanban: Nuevo, En Preparacion, Listo
-    return pedidos.filter(p => ['nuevo', 'esperando', 'listo'].includes(p.estado));
+    return activos.filter(p => ['nuevo', 'esperando', 'listo'].includes(p.estado));
   }
-  if (state.filtroEstado === 'todos') return pedidos;
+  if (state.filtroEstado === 'todos') return activos;
   if (state.filtroEstado === 'entregado') {
-    return pedidos.filter(p => p.estado === 'entregado');
+    return activos.filter(p => p.estado === 'entregado');
   }
-  return pedidos.filter(p => p.estado === state.filtroEstado);
+  return activos.filter(p => p.estado === state.filtroEstado);
 }
 
 // ─── Kanban ────────────────────────────────────────────────────────────────
@@ -898,6 +911,12 @@ function setupEventListeners() {
     renderizarVista();
   });
 
+  document.getElementById('btn-vista-historial')?.addEventListener('click', () => {
+    state.vistaActual = 'historial';
+    actualizarBotonesVista('btn-vista-historial');
+    renderizarVista();
+  });
+
   // Filtros
   document.querySelectorAll('[data-filtro]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1402,3 +1421,321 @@ async function guardarCategoria() {
   else { console.error('[Categoria] Error al guardar:', res.error); mostrarToast('Error: ' + res.error, 'error'); }
 }
 async function eliminarCategoria(id) { if (confirm("¿Eliminar categoría?")) { await window.electronAPI.deleteCategoria(id); renderizarInventario(); } }
+// ─── TIENDA: Estado y Apertura/Cierre ─────────────────────────────────────────
+async function inicializarEstadoTienda() {
+  const res = await window.electronAPI.getTiendaStatus();
+  if (res.ok) {
+    state.tiendaAbierta = res.abierta;
+    actualizarBotonTienda();
+  }
+}
+
+function actualizarBotonTienda() {
+  const btn = document.getElementById('btn-tienda');
+  const icon = document.getElementById('btn-tienda-icon');
+  const text = document.getElementById('btn-tienda-text');
+  if (!btn) return;
+
+  if (state.tiendaAbierta) {
+    btn.className = 'btn-tienda abierta';
+    icon.textContent = '🟢';
+    text.textContent = '¿Cerramos el Día?';
+  } else {
+    btn.className = 'btn-tienda cerrada';
+    icon.textContent = '🔴';
+    text.textContent = '¿Abrimos la Tienda?';
+  }
+}
+
+function setupTiendaListeners() {
+  // Boton principal de tienda
+  document.getElementById('btn-tienda')?.addEventListener('click', () => {
+    if (state.tiendaAbierta) {
+      abrirModalCierre();
+    } else {
+      abrirModalApertura();
+    }
+  });
+
+  // Modal Apertura ─ cancelar
+  document.getElementById('btn-cancelar-apertura')?.addEventListener('click', () => {
+    document.getElementById('modal-apertura').classList.remove('visible');
+  });
+
+  // Modal Apertura ─ confirmar
+  document.getElementById('btn-confirmar-apertura')?.addEventListener('click', async () => {
+    await confirmarApertura();
+  });
+
+  // Modal Cierre ─ cancelar
+  document.getElementById('btn-cancelar-cierre')?.addEventListener('click', () => {
+    document.getElementById('modal-cierre').classList.remove('visible');
+  });
+
+  // Modal Cierre ─ confirmar
+  document.getElementById('btn-confirmar-cierre')?.addEventListener('click', async () => {
+    await confirmarCierre();
+  });
+
+  // Historial: tabs
+  document.getElementById('tab-ventas')?.addEventListener('click', () => {
+    document.getElementById('historial-ventas').style.display = 'block';
+    document.getElementById('historial-archivados').style.display = 'none';
+    document.getElementById('tab-ventas').classList.add('activo');
+    document.getElementById('tab-archivados').classList.remove('activo');
+  });
+
+  document.getElementById('tab-archivados')?.addEventListener('click', () => {
+    document.getElementById('historial-ventas').style.display = 'none';
+    document.getElementById('historial-archivados').style.display = 'block';
+    document.getElementById('tab-ventas').classList.remove('activo');
+    document.getElementById('tab-archivados').classList.add('activo');
+    cargarArchivados();
+  });
+
+  // Historial: exportar CSV
+  document.getElementById('btn-exportar-csv')?.addEventListener('click', async () => {
+    const res = await window.electronAPI.exportarHistorialCSV();
+    if (res.ok) {
+      mostrarToast('✅ CSV exportado correctamente', 'success');
+    } else if (res.error !== 'Cancelado por el usuario') {
+      mostrarToast('❌ Error al exportar: ' + res.error, 'error');
+    }
+  });
+}
+
+async function abrirModalApertura() {
+  const modal = document.getElementById('modal-apertura');
+  const contProductos = document.getElementById('apertura-productos');
+  const contInsumos = document.getElementById('apertura-insumos');
+
+  contProductos.innerHTML = '<p style="color:var(--text2)">Cargando...</p>';
+  contInsumos.innerHTML = '<p style="color:var(--text2)">Cargando...</p>';
+  modal.classList.add('visible');
+
+  const res = await window.electronAPI.getStockApertura();
+  if (!res.ok) {
+    contProductos.innerHTML = '<p style="color:var(--danger)">Error al cargar stock</p>';
+    return;
+  }
+
+  contProductos.innerHTML = res.productos.length === 0
+    ? '<p style="color:var(--text2)">No hay productos con stock.</p>'
+    : res.productos.map(p => `
+      <div class="apertura-item">
+        <span class="apertura-nombre">${escapeHtml(p.nombre)}</span>
+        <input type="number" class="apertura-input" data-id="${p.id}" data-tipo="producto" value="${p.stock_actual}" min="0">
+        <span class="apertura-unidad">u.</span>
+      </div>
+    `).join('');
+
+  contInsumos.innerHTML = res.insumos.length === 0
+    ? '<p style="color:var(--text2)">No hay insumos con stock.</p>'
+    : res.insumos.map(i => `
+      <div class="apertura-item">
+        <span class="apertura-nombre">${escapeHtml(i.nombre)}</span>
+        <input type="number" class="apertura-input" data-id="${i.id}" data-tipo="insumo" value="${i.cantidad_actual}" min="0" step="0.1">
+        <span class="apertura-unidad">${escapeHtml(i.unidad_medida)}</span>
+      </div>
+    `).join('');
+}
+
+async function confirmarApertura() {
+  // Recolectar cambios de stock
+  const inputs = document.querySelectorAll('.apertura-input');
+  const productos = [];
+  const insumos = [];
+
+  inputs.forEach(input => {
+    const id = parseInt(input.dataset.id);
+    const val = parseFloat(input.value) || 0;
+    if (input.dataset.tipo === 'producto') {
+      productos.push({ id, stock_actual: val });
+    } else {
+      insumos.push({ id, cantidad_actual: val });
+    }
+  });
+
+  // Guardar stock actualizado
+  await window.electronAPI.updateStockApertura({ productos, insumos });
+
+  // Abrir la tienda (archiva pendientes + purga CSV)
+  const res = await window.electronAPI.abrirTienda();
+  if (!res.ok) {
+    mostrarToast('❌ Error al abrir la tienda: ' + res.error, 'error');
+    return;
+  }
+
+  document.getElementById('modal-apertura').classList.remove('visible');
+  state.tiendaAbierta = true;
+  actualizarBotonTienda();
+
+  // Recargar pedidos (el kanban estará limpio ahora)
+  await cargarPedidosIniciales();
+  mostrarToast('🟢 ¡Tienda abierta! Buen día de trabajo.', 'success');
+}
+
+async function abrirModalCierre() {
+  const modal = document.getElementById('modal-cierre');
+  const resumen = document.getElementById('cierre-resumen');
+
+  // Calcular resumen del día
+  const hoy = new Date().toLocaleDateString('es-AR');
+  const entregadosHoy = state.pedidos.filter(p =>
+    p.estado === 'entregado' &&
+    !p.archivado &&
+    new Date(p.created_at).toLocaleDateString('es-AR') === hoy
+  );
+  const totalHoy = entregadosHoy.reduce((acc, p) => acc + (parseFloat(p.total) || 0), 0);
+  const canceladosHoy = state.pedidos.filter(p =>
+    p.estado === 'cancelado' &&
+    new Date(p.created_at).toLocaleDateString('es-AR') === hoy
+  );
+
+  resumen.innerHTML = `
+    <div class="cierre-stat">
+      <span class="cierre-stat-label">✅ Pedidos Entregados</span>
+      <span class="cierre-stat-valor">${entregadosHoy.length}</span>
+    </div>
+    <div class="cierre-stat">
+      <span class="cierre-stat-label">💰 Total Recaudado</span>
+      <span class="cierre-stat-valor verde">$${totalHoy.toLocaleString('es-AR')}</span>
+    </div>
+    <div class="cierre-stat">
+      <span class="cierre-stat-label">❌ Pedidos Cancelados</span>
+      <span class="cierre-stat-valor">${canceladosHoy.length}</span>
+    </div>
+  `;
+
+  modal.classList.add('visible');
+}
+
+async function confirmarCierre() {
+  const res = await window.electronAPI.cerrarTienda();
+  if (!res.ok) {
+    mostrarToast('❌ Error al cerrar: ' + res.error, 'error');
+    return;
+  }
+  document.getElementById('modal-cierre').classList.remove('visible');
+  state.tiendaAbierta = false;
+  actualizarBotonTienda();
+  mostrarToast('🔴 Tienda cerrada. ¡Hasta mañana!', 'warning');
+}
+
+// ─── HISTORIAL ──────────────────────────────────────────────────────────
+async function cargarHistorial() {
+  // Mostrar pestaña activa (ventas por defecto)
+  const tabVentas = document.getElementById('tab-ventas');
+  const tabArchivados = document.getElementById('tab-archivados');
+  const contVentas = document.getElementById('historial-ventas');
+  const contArchivados = document.getElementById('historial-archivados');
+
+  if (!contVentas) return;
+
+  // Resetear a tab ventas si es la primera vez
+  if (tabVentas && !tabVentas.classList.contains('activo') && !tabArchivados.classList.contains('activo')) {
+    tabVentas.classList.add('activo');
+  }
+
+  if (contVentas.style.display !== 'none') {
+    contVentas.innerHTML = '<p style="color:var(--text2);padding:20px">Cargando...</p>';
+    const res = await window.electronAPI.getHistorialPedidos();
+    if (!res.ok) {
+      contVentas.innerHTML = '<p style="color:var(--danger)">Error al cargar historial</p>';
+      return;
+    }
+    renderizarHistorialVentas(res.data, contVentas);
+  }
+}
+
+function renderizarHistorialVentas(pedidos, container) {
+  if (pedidos.length === 0) {
+    container.innerHTML = '<div class="empty-state">No hay pedidos entregados en los últimos 3 meses.</div>';
+    return;
+  }
+
+  // Agrupar por mes
+  const porMes = {};
+  pedidos.forEach(p => {
+    const fecha = new Date(p.created_at);
+    const key = fecha.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+    if (!porMes[key]) porMes[key] = { pedidos: [], total: 0 };
+    porMes[key].pedidos.push(p);
+    porMes[key].total += parseFloat(p.total) || 0;
+  });
+
+  container.innerHTML = Object.entries(porMes).map(([mes, data]) => `
+    <div class="historial-mes">
+      <div class="historial-mes-header">
+        <h3>📅 ${mes.charAt(0).toUpperCase() + mes.slice(1)}</h3>
+        <span class="historial-mes-total">${data.pedidos.length} pedidos — <strong>$${data.total.toLocaleString('es-AR')}</strong></span>
+      </div>
+      <div class="historial-tabla">
+        <div class="historial-tabla-header">
+          <span>Pedido</span><span>Cliente</span><span>Productos</span><span>Total</span><span>Pago</span><span>Fecha</span>
+        </div>
+        ${data.pedidos.map(p => {
+          let prods = [];
+          try { prods = JSON.parse(p.productos); } catch {}
+          const resumen = Array.isArray(prods) ? prods.slice(0,2).map(x => `${x.cantidad||1}x ${x.nombre||x.name}`).join(', ') : '';
+          return `
+            <div class="historial-tabla-row">
+              <span class="hist-numero">${p.numero_pedido || '#'+p.id}</span>
+              <span>${escapeHtml(p.cliente_nombre)}</span>
+              <span class="hist-prods">${escapeHtml(resumen)}</span>
+              <span class="hist-total">$${parseFloat(p.total||0).toLocaleString('es-AR')}</span>
+              <span>${p.metodo_pago || 'efectivo'}</span>
+              <span class="hist-fecha">${new Date(p.created_at).toLocaleDateString('es-AR')}</span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function cargarArchivados() {
+  const container = document.getElementById('historial-archivados');
+  if (!container) return;
+  container.innerHTML = '<p style="color:var(--text2);padding:20px">Cargando...</p>';
+  const res = await window.electronAPI.getHistorialArchivados();
+  if (!res.ok) {
+    container.innerHTML = '<p style="color:var(--danger)">Error al cargar archivados</p>';
+    return;
+  }
+
+  if (res.data.length === 0) {
+    container.innerHTML = '<div class="empty-state">No hay pedidos archivados.</div>';
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="historial-tabla">
+      <div class="historial-tabla-header">
+        <span>Pedido</span><span>Cliente</span><span>Estado</span><span>Total</span><span>Fecha</span><span>Acción</span>
+      </div>
+      ${res.data.map(p => `
+        <div class="historial-tabla-row">
+          <span class="hist-numero">${p.numero_pedido || '#'+p.id}</span>
+          <span>${escapeHtml(p.cliente_nombre)}</span>
+          <span class="lista-estado estado-${p.estado}">${ESTADOS[p.estado]?.emoji || ''} ${ESTADOS[p.estado]?.label || p.estado}</span>
+          <span class="hist-total">$${parseFloat(p.total||0).toLocaleString('es-AR')}</span>
+          <span class="hist-fecha">${new Date(p.created_at).toLocaleDateString('es-AR')}</span>
+          <button class="btn btn-small btn-secondary btn-desarchivar" data-id="${p.id}">↩ Recuperar</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  container.querySelectorAll('.btn-desarchivar').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = parseInt(btn.dataset.id);
+      const res = await window.electronAPI.desarchivarPedido(id);
+      if (res.ok) {
+        mostrarToast('✅ Pedido recuperado al flujo activo', 'success');
+        await cargarPedidosIniciales();
+        cargarArchivados();
+      }
+    });
+  });
+}

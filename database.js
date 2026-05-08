@@ -48,16 +48,17 @@ function initDatabase() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS pedidos (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
-      numero_pedido   TEXT UNIQUE NOT NULL,       -- Ej: "PED-001"
+      numero_pedido   TEXT UNIQUE NOT NULL,
       cliente_nombre  TEXT NOT NULL,
       cliente_tel     TEXT DEFAULT '',
       direccion       TEXT DEFAULT '',
-      productos       TEXT NOT NULL,              -- JSON array de productos
+      productos       TEXT NOT NULL,
       total           REAL NOT NULL DEFAULT 0,
-      metodo_pago     TEXT DEFAULT 'efectivo',    -- efectivo | transferencia | mercadopago
-      estado          TEXT DEFAULT 'nuevo',       -- nuevo | en_preparacion | listo | entregado | cancelado
+      metodo_pago     TEXT DEFAULT 'efectivo',
+      estado          TEXT DEFAULT 'nuevo',
       notas           TEXT DEFAULT '',
-      fuente          TEXT DEFAULT 'manual',      -- manual
+      fuente          TEXT DEFAULT 'manual',
+      archivado       INTEGER DEFAULT 0,           -- 0 = activo | 1 = archivado (quedó pendiente al cerrar)
       created_at      TEXT DEFAULT (datetime('now', 'localtime')),
       updated_at      TEXT DEFAULT (datetime('now', 'localtime'))
     );
@@ -128,27 +129,23 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_pedidos_created ON pedidos(created_at DESC);
   `);
 
-  // Migraciones menores para añadir categoria_id a las tablas existentes
-  try { db.exec("ALTER TABLE productos ADD COLUMN categoria_id INTEGER REFERENCES categorias(id);"); } catch (e) { /* Columna ya existe */ }
-  try { db.exec("ALTER TABLE insumos ADD COLUMN categoria_id INTEGER REFERENCES categorias(id);"); } catch (e) { /* Columna ya existe */ }
-
-  // Migración: agregar columna direccion a bases de datos existentes
-  try {
-    db.prepare('ALTER TABLE pedidos ADD COLUMN direccion TEXT DEFAULT ""').run();
-  } catch (err) {
-    // Si la columna ya existe, ignoramos el error
-  }
+  // Migraciones menores para añadir columnas a tablas existentes
+  try { db.exec("ALTER TABLE productos ADD COLUMN categoria_id INTEGER REFERENCES categorias(id);"); } catch (e) { }
+  try { db.exec("ALTER TABLE insumos ADD COLUMN categoria_id INTEGER REFERENCES categorias(id);"); } catch (e) { }
+  try { db.prepare('ALTER TABLE pedidos ADD COLUMN direccion TEXT DEFAULT ""').run(); } catch (e) { }
+  try { db.prepare('ALTER TABLE pedidos ADD COLUMN archivado INTEGER DEFAULT 0').run(); } catch (e) { }
 
   // Insertar config por defecto si no existe
   const insertConfig = db.prepare(`
     INSERT OR IGNORE INTO configuracion (clave, valor) VALUES (?, ?)
   `);
   insertConfig.run('impresora_nombre', 'TM-T20');
-  insertConfig.run('impresora_tipo', 'usb');      // usb | network | printer_name
+  insertConfig.run('impresora_tipo', 'usb');
   insertConfig.run('impresora_ip', '192.168.1.100');
   insertConfig.run('nombre_negocio', 'Burger House');
   insertConfig.run('direccion_negocio', 'Tu dirección aquí');
   insertConfig.run('whatsapp_negocio', '+54 9 11 0000-0000');
+  insertConfig.run('tienda_abierta', '0');  // 0 = cerrada | 1 = abierta
 
   console.log(`[DB] SQLite conectado en: ${dbPath}`);
   return db;
