@@ -65,6 +65,21 @@ function createWindow() {
 
 function setupIpcHandlers(db) {
 
+  // ── DIALOGOS NATIVOS ─────────────────────────────────────────────────────
+  ipcMain.handle('dialog:confirm', async (_, message) => {
+    const { dialog } = require('electron');
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: ['Cancelar', 'Aceptar'],
+      title: 'Confirmar',
+      message: message,
+      defaultId: 1,
+      cancelId: 0
+    });
+    // Devuelve true si hace click en "Aceptar" (índice 1)
+    return response === 1;
+  });
+
   // ── PEDIDOS: Leer todos ──────────────────────────────────────────────────
   ipcMain.handle('pedidos:getAll', async () => {
     try {
@@ -524,6 +539,33 @@ function setupIpcHandlers(db) {
       return { ok: true, enough, errors };
     } catch (err) {
       console.error('[checkStock] Error:', err);
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ── CONFIGURACIÓN GENÉRICA ───────────────────────────────────────────────
+  ipcMain.handle('config:getAll', async () => {
+    try {
+      const rows = db.prepare(`SELECT clave, valor FROM configuracion`).all();
+      const configObj = {};
+      for (const row of rows) {
+        configObj[row.clave] = row.valor;
+      }
+      return { ok: true, data: configObj };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('config:save', async (_, { clave, valor }) => {
+    try {
+      db.prepare(`
+        INSERT INTO configuracion (clave, valor)
+        VALUES (?, ?)
+        ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor;
+      `).run(clave, valor);
+      return { ok: true };
+    } catch (err) {
       return { ok: false, error: err.message };
     }
   });

@@ -35,6 +35,7 @@
       <button id="btn-vista-lista" class="vista-btn" title="Vista Lista">Todos</button>
       <button id="btn-vista-inventario" class="vista-btn" title="Depósito / Inventario">📦</button>
       <button id="btn-vista-historial" class="vista-btn" title="Historial de Ventas">📋</button>
+      <button id="btn-configuracion" class="vista-btn" title="Configuración">⚙️</button>
       <span class="polling-indicator" title="Actualizando en tiempo real">●</span>
     </div>
   </header>
@@ -347,6 +348,36 @@
       <div class="modal-apertura-footer">
         <button id="btn-cancelar-cierre" class="btn btn-secondary">Cancelar</button>
         <button id="btn-confirmar-cierre" class="btn btn-warning">🔒 Cerrar el Día</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal Configuración ─────────────────────────────────── -->
+  <div id="modal-configuracion" class="modal-overlay">
+    <div class="modal-container" style="width: 400px;">
+      <div class="modal-header">
+        <h2>⚙️ Configuración del Sistema</h2>
+        <button class="btn-icon" id="btn-cerrar-configuracion">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group edit-mode">
+          <label>Impresora Activa</label>
+          <select id="config-impresora-nombre" class="edit-input" style="margin-bottom:20px;">
+            <option value="">Cargando impresoras...</option>
+          </select>
+          
+          <label>Ancho del Papel (Formato)</label>
+          <select id="config-impresora-ancho" class="edit-input" style="margin-bottom:10px;">
+            <option value="32">58mm (32 caracteres)</option>
+            <option value="48">80mm (48 caracteres)</option>
+          </select>
+          <small style="color:var(--text2); display:block; margin-bottom:20px;">
+            Si el texto sale cortado, elige 58mm. Si sobra espacio, elige 80mm.
+          </small>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-guardar-configuracion" class="btn btn-primary">💾 Guardar Cambios</button>
       </div>
     </div>
   </div>

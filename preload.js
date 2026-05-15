@@ -180,6 +180,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** Exportar historial de ventas a CSV con diálogo de guardado */
   exportarHistorialCSV: () =>
     ipcRenderer.invoke('historial:exportarCSV'),
+
+  // ─── CONFIGURACIÓN ──────────────────────────────────────────────────────
+
+  /** Obtener toda la configuración de la tabla configuracion */
+  getConfig: () =>
+    ipcRenderer.invoke('config:getAll'),
+
+  /** Guardar un par clave-valor en la configuración */
+  saveConfig: (clave, valor) =>
+    ipcRenderer.invoke('config:save', { clave, valor }),
+
+  // ─── DIALOGOS NATIVOS ───────────────────────────────────────────────────
+  showConfirmDialog: (message) =>
+    ipcRenderer.invoke('dialog:confirm', message),
 });
 
 // ── Información de la plataforma (read-only, sin IPC) ─────────────────────

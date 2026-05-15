@@ -8,6 +8,7 @@
 // ─── Estado de la aplicación ──────────────────────────────────────────────
 const state = {
   pedidos: [],
+  archivados: [], // Para poder abrirlos desde el modal
   lastCheck: null,
   pollingInterval: null,
   vistaActual: 'kanban',
@@ -147,10 +148,8 @@ function mostrarStatsFooter() {
     footer.style.display = 'none';
     return;
   }
-  const hoy = new Date().toLocaleDateString('es-AR');
   const entregadosHoy = state.pedidos.filter(p => 
-    p.estado === 'entregado' && 
-    new Date(p.created_at).toLocaleDateString('es-AR') === hoy
+    !p.archivado && p.estado === 'entregado'
   );
   const totalDinero = entregadosHoy.reduce((acc, p) => acc + (parseFloat(p.total) || 0), 0);
   footer.style.display = 'flex';
@@ -414,7 +413,10 @@ function crearCardHTML(pedido) {
 
 // ─── Modal de pedido ───────────────────────────────────────────────────────
 async function abrirModal(id) {
-  const pedido = state.pedidos.find(p => p.id === id);
+  let pedido = state.pedidos.find(p => p.id === id);
+  if (!pedido && state.archivados) {
+    pedido = state.archivados.find(p => p.id === id);
+  }
   if (!pedido) return;
 
   // Siempre refresca productos para evitar datos desactualizados
@@ -465,16 +467,21 @@ function renderizarModalContenido() {
   const modal = document.getElementById('modal-pedido');
   const contenido = modal.querySelector('.modal-body');
 
-  // Ajustar visibilidad de botones según estado y modo
+  // Si está archivado, es SIEMPRE solo lectura
+  const esArchivado = !!pedido.archivado;
   const esCancelado = pedido.estado === 'cancelado';
+  const soloLectura = esCancelado || esArchivado;
+
+  // Ajustar visibilidad de botones según estado y modo
   const btnEditar = document.getElementById('btn-editar-pedido');
   const btnGuardar = document.getElementById('btn-guardar-pedido');
   const btnImprimir = document.getElementById('btn-imprimir');
   const btnCancelar = document.getElementById('btn-cancelar-pedido');
-  if (btnEditar) btnEditar.style.display = (isEdit || esCancelado || state.isCreateMode) ? 'none' : 'inline-flex';
+  
+  if (btnEditar) btnEditar.style.display = (isEdit || soloLectura || state.isCreateMode) ? 'none' : 'inline-flex';
   if (btnGuardar) btnGuardar.style.display = isEdit ? 'inline-flex' : 'none';
-  if (btnImprimir) btnImprimir.style.display = (isEdit || esCancelado || state.isCreateMode) ? 'none' : 'inline-flex';
-  if (btnCancelar) btnCancelar.style.display = (esCancelado || state.isCreateMode) ? 'none' : 'inline-flex';
+  if (btnImprimir) btnImprimir.style.display = (isEdit || soloLectura || state.isCreateMode) ? 'none' : 'inline-flex';
+  if (btnCancelar) btnCancelar.style.display = (soloLectura || state.isCreateMode) ? 'none' : 'inline-flex';
 
   const modalHeader = modal.querySelector('.modal-header h2');
   if (state.isCreateMode) {
@@ -495,8 +502,8 @@ function renderizarModalContenido() {
         </div>
         <div>
           <label>Estado</label>
-          ${esCancelado
-        ? `<span class="estado-cancelado-badge">❌ Cancelado</span>`
+          ${soloLectura
+        ? `<span class="estado-cancelado-badge">${esArchivado ? '📦 Archivado' : '❌ Cancelado'}</span>`
         : `<select id="modal-estado" class="estado-select">
             <option value="nuevo"     ${pedido.estado === 'nuevo' ? 'selected' : ''}>🆕 Nuevo</option>
             <option value="esperando" ${pedido.estado === 'esperando' ? 'selected' : ''}>⏳ En Preparacion</option>
@@ -549,7 +556,7 @@ function renderizarModalContenido() {
       </div>
     `;
 
-    if (!esCancelado) {
+    if (!soloLectura) {
       document.getElementById('modal-estado').addEventListener('change', async (e) => {
         await cambiarEstado(pedido.id, e.target.value);
       });
@@ -706,6 +713,10 @@ function cerrarModal() {
   state.pedidoSeleccionado = null;
   state.isEditMode = false;
   state.isCreateMode = false;
+  
+  // Limpiar el DOM para evitar que queden event listeners colgados o estados corruptos
+  const contenido = modal.querySelector('.modal-body');
+  if (contenido) contenido.innerHTML = '';
 }
 
 // ─── Acciones desde el modal ───────────────────────────────────────────────
@@ -837,18 +848,28 @@ async function cambiarEstado(id, nuevoEstado) {
 
 async function cancelarPedido() {
   const pedido = state.pedidoSeleccionado;
-  if (!pedido) return;
+  if (!pedido || state.isCreateMode) return; // Prevent cancelling if it's a new unsaved order
 
   const confirmar = confirm(`¿Cancelar el pedido ${pedido.numero_pedido || '#' + pedido.id} de ${pedido.cliente_nombre}?`);
   if (!confirmar) return;
 
-  const result = await window.electronAPI.deletePedido(pedido.id);
-  if (result.ok) {
-    const pedidoLocal = state.pedidos.find(p => p.id === pedido.id);
-    if (pedidoLocal) pedidoLocal.estado = 'cancelado';
+  try {
+    const result = await window.electronAPI.deletePedido(pedido.id);
+    if (result.ok) {
+      const pedidoLocal = state.pedidos.find(p => p.id === pedido.id);
+      if (pedidoLocal) pedidoLocal.estado = 'cancelado';
+      
+      cerrarModal();
+      renderizarVista();
+      mostrarToast('❌ Pedido cancelado correctamente', 'warning');
+    } else {
+      mostrarToast('❌ Error al cancelar: ' + (result.error || 'Error desconocido'), 'error');
+    }
+  } catch (err) {
+    mostrarToast('❌ Error inesperado al cancelar', 'error');
+    console.error(err);
     cerrarModal();
     renderizarVista();
-    mostrarToast('Pedido cancelado', 'warning');
   }
 }
 
@@ -1579,17 +1600,14 @@ async function abrirModalCierre() {
   const modal = document.getElementById('modal-cierre');
   const resumen = document.getElementById('cierre-resumen');
 
-  // Calcular resumen del día
-  const hoy = new Date().toLocaleDateString('es-AR');
+  // Calcular resumen de la sesión actual
   const entregadosHoy = state.pedidos.filter(p =>
-    p.estado === 'entregado' &&
-    !p.archivado &&
-    new Date(p.created_at).toLocaleDateString('es-AR') === hoy
+    !p.archivado && p.estado === 'entregado'
   );
   const totalHoy = entregadosHoy.reduce((acc, p) => acc + (parseFloat(p.total) || 0), 0);
+  
   const canceladosHoy = state.pedidos.filter(p =>
-    p.estado === 'cancelado' &&
-    new Date(p.created_at).toLocaleDateString('es-AR') === hoy
+    !p.archivado && p.estado === 'cancelado'
   );
 
   resumen.innerHTML = `
@@ -1709,33 +1727,100 @@ async function cargarArchivados() {
     return;
   }
 
+  state.archivados = res.data;
+
   container.innerHTML = `
     <div class="historial-tabla">
       <div class="historial-tabla-header">
         <span>Pedido</span><span>Cliente</span><span>Estado</span><span>Total</span><span>Fecha</span><span>Acción</span>
       </div>
       ${res.data.map(p => `
-        <div class="historial-tabla-row">
+        <div class="historial-tabla-row clickable-row" onclick="abrirModal(${p.id})">
           <span class="hist-numero">${p.numero_pedido || '#'+p.id}</span>
           <span>${escapeHtml(p.cliente_nombre)}</span>
           <span class="lista-estado estado-${p.estado}">${ESTADOS[p.estado]?.emoji || ''} ${ESTADOS[p.estado]?.label || p.estado}</span>
           <span class="hist-total">$${parseFloat(p.total||0).toLocaleString('es-AR')}</span>
           <span class="hist-fecha">${new Date(p.created_at).toLocaleDateString('es-AR')}</span>
-          <button class="btn btn-small btn-secondary btn-desarchivar" data-id="${p.id}">↩ Recuperar</button>
+          <button class="btn btn-small btn-primary btn-entregar-arch" data-id="${p.id}" onclick="event.stopPropagation()">✅ Entregado</button>
         </div>
       `).join('')}
     </div>
   `;
 
-  container.querySelectorAll('.btn-desarchivar').forEach(btn => {
-    btn.addEventListener('click', async () => {
+  container.querySelectorAll('.btn-entregar-arch').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
       const id = parseInt(btn.dataset.id);
-      const res = await window.electronAPI.desarchivarPedido(id);
+      // Actualizar a estado 'entregado'
+      const res = await window.electronAPI.updateEstadoPedido(id, 'entregado');
       if (res.ok) {
-        mostrarToast('✅ Pedido recuperado al flujo activo', 'success');
+        mostrarToast('📦 Pedido marcado como entregado', 'success');
         await cargarPedidosIniciales();
         cargarArchivados();
+      } else {
+        mostrarToast('❌ Error: ' + res.error, 'error');
       }
     });
   });
 }
+
+// ─── CONFIGURACIÓN DE IMPRESORA ─────────────────────────────────────────
+
+document.getElementById('btn-configuracion')?.addEventListener('click', async () => {
+  const modal = document.getElementById('modal-configuracion');
+  const selectPrinter = document.getElementById('config-impresora-nombre');
+  const selectWidth = document.getElementById('config-impresora-ancho');
+
+  // Cargar impresoras
+  selectPrinter.innerHTML = '<option value="">Cargando...</option>';
+  const resPrinters = await window.electronAPI.listPrinters();
+  
+  if (resPrinters.ok) {
+    selectPrinter.innerHTML = '<option value="">-- Seleccionar Impresora --</option>';
+    resPrinters.data.forEach(p => {
+      const option = document.createElement('option');
+      option.value = p.name;
+      option.textContent = p.displayName || p.name;
+      selectPrinter.appendChild(option);
+    });
+  } else {
+    selectPrinter.innerHTML = '<option value="">Error al cargar impresoras</option>';
+  }
+
+  // Cargar configuración actual
+  const resConfig = await window.electronAPI.getConfig();
+  if (resConfig.ok) {
+    if (resConfig.data.impresora_nombre) {
+      selectPrinter.value = resConfig.data.impresora_nombre;
+    }
+    if (resConfig.data.impresora_ancho) {
+      selectWidth.value = resConfig.data.impresora_ancho;
+    }
+  }
+
+  modal.classList.add('visible');
+});
+
+document.getElementById('btn-cerrar-configuracion')?.addEventListener('click', () => {
+  document.getElementById('modal-configuracion').classList.remove('visible');
+});
+
+document.getElementById('btn-guardar-configuracion')?.addEventListener('click', async () => {
+  const printerName = document.getElementById('config-impresora-nombre').value;
+  const paperWidth = document.getElementById('config-impresora-ancho').value;
+
+  if (!printerName) {
+    mostrarToast('❌ Por favor, selecciona una impresora', 'error');
+    return;
+  }
+
+  const res1 = await window.electronAPI.saveConfig('impresora_nombre', printerName);
+  const res2 = await window.electronAPI.saveConfig('impresora_ancho', paperWidth);
+
+  if (res1.ok && res2.ok) {
+    mostrarToast('✅ Configuración guardada', 'success');
+    document.getElementById('modal-configuracion').classList.remove('visible');
+  } else {
+    mostrarToast('❌ Error al guardar configuración', 'error');
+  }
+});

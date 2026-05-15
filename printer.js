@@ -34,8 +34,7 @@ function getPrinterConfig() {
 function createPrinter(config) {
   // Solución para Windows sin necesidad de instalar controladores nativos de Node (node-printer):
   // Se enviará el archivo a la impresora compartida en la red local.
-  // IMPORTANTE: La impresora debe estar compartida en Windows con el nombre 'POS-58'
-  const nombreImpresora = 'POS-58';
+  const nombreImpresora = config.impresora_nombre || 'POS-58';
   const printer = new ThermalPrinter({
     type: PrinterTypes.EPSON,
     interface: 'file://dummy', // Dummy interface para evitar el error de validación de la librería
@@ -116,13 +115,15 @@ async function printTicket(pedido) {
     timeStyle: 'short',
   });
 
-  // ── DISEÑO DEL TICKET (32 caracteres de ancho — estándar 58mm) ──────────
+  // ── DISEÑO DEL TICKET ──────────
+  // Usamos el ancho configurado dinámicamente o 32 por defecto (58mm)
+  const ANCHO_TICKET = parseInt(config.impresora_ancho) || 32;
 
   printer.alignCenter();
   printer.bold(true);
-  printer.setTextSize(1, 1);          // Doble tamaño para el nombre del negocio
+  printer.setTextSize(1, 1);          // (1, 1) significa Doble Ancho y Doble Alto. (0, 0) es normal.
   printer.println(negocio.toUpperCase());
-  printer.setTextNormal();
+  printer.setTextNormal();            // Volver a tamaño estándar (0, 0)
   printer.bold(false);
 
   if (direccion) printer.println(direccion);
@@ -151,10 +152,11 @@ async function printTicket(pedido) {
       const precio = item.precio || item.price || 0;
       const subtotal = cant * precio;
 
-      // Línea: "2x Burger Clásica       $2.400,00"
+      // Cálculo de columnas: "Cant x Nombre" a la izquierda y "Precio" a la derecha.
+      // Cortamos el nombre a 16 caracteres para que no empuje el precio a la línea de abajo.
       const izq = `${cant}x ${nombre}`;
       const der = formatPrice(subtotal);
-      const espacios = 32 - izq.length - der.length;
+      const espacios = ANCHO_TICKET - izq.length - der.length;
       printer.println(izq + ' '.repeat(Math.max(1, espacios)) + der);
 
       // Modificadores o extras (si los hay)
@@ -171,12 +173,12 @@ async function printTicket(pedido) {
 
   printer.drawLine();
 
-  // ── Total ────────────────────────────────────────────────────────────────
-  printer.bold(true);
+  // Aquí usamos setTextNormal() para que no salga gigante. 
+  // Si quisieras que el Total sea grande, podrías usar setTextSize(1, 0) (solo doble ancho).
   printer.setTextNormal();
   const totalStr = formatPrice(pedido.total);
   const labelTotal = 'TOTAL:';
-  const espaciosTotal = 32 - labelTotal.length - totalStr.length;
+  const espaciosTotal = ANCHO_TICKET - labelTotal.length - totalStr.length;
   printer.println(labelTotal + ' '.repeat(Math.max(1, espaciosTotal)) + totalStr);
   printer.setTextNormal();
   printer.bold(false);
