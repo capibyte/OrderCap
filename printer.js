@@ -32,55 +32,52 @@ function getPrinterConfig() {
 
 // ── Crear instancia de la impresora ─────────────────────────────────────────
 function createPrinter(config) {
-  const tipo = config.impresora_tipo || 'network';
-
-  // ─ Opción A: USB directo (más común en locales) ─────────────────────────
-  // node-thermal-printer usa VID/PID del dispositivo USB.
-  // Para encontrarlos: en Windows Device Manager, en Linux: lsusb
-  // Ejemplo Epson TM-T20: VID=0x04b8, PID=0x0202
-  // Ejemplo Star TSP100: VID=0x0519, PID=0x0003
-  if (tipo === 'usb') {
-    return new ThermalPrinter({
-      type: PrinterTypes.EPSON,       // EPSON | STAR | BIXOLON
-      interface: 'usb',
-      driver: require('usb'),
-      characterSet: CharacterSet.PC858_EURO,
-      removeSpecialCharacters: false,
-      lineCharacter: '-',
-      breakLine: BreakLine.WORD,
-      options: {
-        timeout: 5000,
-      }
-    });
-  }
-
-  // ─ Opción B: Red / WiFi (si la impresora tiene Ethernet o WiFi) ─────────
-  if (tipo === 'network') {
-    const ip = config.impresora_ip || '192.168.1.100';
-    return new ThermalPrinter({
-      type: PrinterTypes.EPSON,
-      interface: `tcp://${ip}:9100`,  // Puerto 9100 es el estándar ESC/POS over TCP
-      characterSet: CharacterSet.PC858_EURO,
-      removeSpecialCharacters: false,
-      lineCharacter: '-',
-      breakLine: BreakLine.WORD,
-      options: {
-        timeout: 5000,
-      }
-    });
-  }
-
-  // ─ Opción C: Impresora por nombre del sistema (fallback) ────────────────
-  // Usa el nombre exacto que aparece en "Dispositivos e impresoras"
-  const nombreImpresora = config.impresora_nombre || 'TM-T20';
-  return new ThermalPrinter({
+  // Solución para Windows sin necesidad de instalar controladores nativos de Node (node-printer):
+  // Se enviará el archivo a la impresora compartida en la red local.
+  // IMPORTANTE: La impresora debe estar compartida en Windows con el nombre 'POS-58'
+  const nombreImpresora = 'POS-58';
+  const printer = new ThermalPrinter({
     type: PrinterTypes.EPSON,
-    interface: `printer:${nombreImpresora}`,
+    interface: 'file://dummy', // Dummy interface para evitar el error de validación de la librería
     characterSet: CharacterSet.PC858_EURO,
     removeSpecialCharacters: false,
     lineCharacter: '-',
     breakLine: BreakLine.WORD,
   });
+
+  // Sobrescribimos el método execute para usar el comando COPY nativo de Windows
+  // Esto nos dará el error REAL de red de Windows en lugar de un "timeout" genérico
+  printer.execute = async function() {
+    return new Promise((resolve, reject) => {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const os = require('os');
+        const { exec } = require('child_process');
+
+        const buffer = this.getBuffer();
+        const tempPath = path.join(os.tmpdir(), 'ticket.bin');
+        fs.writeFileSync(tempPath, buffer);
+
+        // Usar 127.0.0.1 suele ser más confiable que localhost para recursos compartidos en Windows
+        const command = `copy /B "${tempPath}" "\\\\127.0.0.1\\\\${nombreImpresora}"`;
+        
+        exec(command, (error, stdout, stderr) => {
+          this.clear();
+          if (error) {
+            reject(new Error(`CMD Error: ${stderr || error.message}`));
+            return;
+          }
+          resolve(stdout);
+        });
+      } catch (err) {
+        this.clear();
+        reject(err);
+      }
+    });
+  };
+
+  return printer;
 }
 
 // ── Formatear precio ────────────────────────────────────────────────────────
@@ -94,10 +91,12 @@ async function printTicket(pedido) {
   const printer = createPrinter(config);
 
   // Verificar conexión con la impresora
-  const isConnected = await printer.isPrinterConnected();
-  if (!isConnected) {
-    throw new Error('No se pudo conectar con la impresora. Verificá que esté encendida y conectada.');
-  }
+  // NOTA: En Windows, fs.existsSync siempre devuelve false para impresoras compartidas en red (\\localhost\...)
+  // por lo que omitimos este chequeo y dejamos que falle en printer.execute() si realmente no hay conexión.
+  // const isConnected = await printer.isPrinterConnected();
+  // if (!isConnected) {
+  //   throw new Error('No se pudo conectar con la impresora. Verificá que esté encendida y conectada.');
+  // }
 
   // Parsear productos (vienen como JSON string desde SQLite)
   let productos = [];
@@ -117,8 +116,7 @@ async function printTicket(pedido) {
     timeStyle: 'short',
   });
 
-  // ── DISEÑO DEL TICKET (48 caracteres de ancho — estándar 80mm) ──────────
-  // Ajustá ANCHO a 32 si tu impresora es de 58mm
+  // ── DISEÑO DEL TICKET (32 caracteres de ancho — estándar 58mm) ──────────
 
   printer.alignCenter();
   printer.bold(true);
@@ -148,7 +146,7 @@ async function printTicket(pedido) {
 
   if (Array.isArray(productos) && productos.length > 0) {
     productos.forEach(item => {
-      const nombre = (item.nombre || item.name || 'Producto').substring(0, 28);
+      const nombre = (item.nombre || item.name || 'Producto').substring(0, 16);
       const cant = item.cantidad || item.quantity || 1;
       const precio = item.precio || item.price || 0;
       const subtotal = cant * precio;
@@ -156,7 +154,7 @@ async function printTicket(pedido) {
       // Línea: "2x Burger Clásica       $2.400,00"
       const izq = `${cant}x ${nombre}`;
       const der = formatPrice(subtotal);
-      const espacios = 48 - izq.length - der.length;
+      const espacios = 32 - izq.length - der.length;
       printer.println(izq + ' '.repeat(Math.max(1, espacios)) + der);
 
       // Modificadores o extras (si los hay)
@@ -178,7 +176,7 @@ async function printTicket(pedido) {
   printer.setTextSize(1, 1);
   const totalStr = formatPrice(pedido.total);
   const labelTotal = 'TOTAL:';
-  const espaciosTotal = 48 - labelTotal.length - totalStr.length;
+  const espaciosTotal = 32 - labelTotal.length - totalStr.length;
   printer.println(labelTotal + ' '.repeat(Math.max(1, espaciosTotal)) + totalStr);
   printer.setTextNormal();
   printer.bold(false);
@@ -209,8 +207,15 @@ async function printTicket(pedido) {
   printer.cut();  // Corte automático del papel
 
   // ── Enviar a la impresora ────────────────────────────────────────────────
-  await printer.execute();
-  console.log(`[Printer] Ticket impreso: ${pedido.numero_pedido || pedido.id}`);
+  try {
+    await printer.execute();
+    console.log(`[Printer] Ticket impreso: ${pedido.numero_pedido || pedido.id}`);
+  } catch (error) {
+    console.error('[Printer Error] Falló printer.execute():', error);
+    // Extraer el mensaje real de error (a veces es un string, a veces un objeto Error)
+    const detalleError = error.message ? error.message : JSON.stringify(error);
+    throw new Error(`Error al enviar datos: ${detalleError}`);
+  }
 }
 
 module.exports = { printTicket };
