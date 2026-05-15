@@ -173,7 +173,7 @@ async function printTicket(pedido) {
 
   // ── Total ────────────────────────────────────────────────────────────────
   printer.bold(true);
-  printer.setTextSize(1, 1);
+  printer.setTextNormal();
   const totalStr = formatPrice(pedido.total);
   const labelTotal = 'TOTAL:';
   const espaciosTotal = 32 - labelTotal.length - totalStr.length;
