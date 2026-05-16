@@ -30,6 +30,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('pedidos:getAll'),
 
   /**
+   * Obtener un pedido por ID
+   * @param {number} id
+   * @returns {Promise<{ok: boolean, data: Pedido}>}
+   */
+  getPedidoById: (id) =>
+    ipcRenderer.invoke('pedidos:getById', id),
+
+  /**
    * Obtener pedidos nuevos desde una fecha (para polling)
    * @param {string} since - ISO string de la última actualización
    * @returns {Promise<{ok: boolean, data: Pedido[]}>}

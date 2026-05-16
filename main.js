@@ -93,6 +93,17 @@ function setupIpcHandlers(db) {
     }
   });
 
+  // ── PEDIDOS: Leer uno por ID ─────────────────────────────────────────────
+  ipcMain.handle('pedidos:getById', async (_, id) => {
+    try {
+      const pedido = db.prepare(`SELECT * FROM pedidos WHERE id = ?`).get(id);
+      if (!pedido) return { ok: false, error: 'Pedido no encontrado' };
+      return { ok: true, data: pedido };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   // ── PEDIDOS: Leer nuevos (para polling) ──────────────────────────────────
   ipcMain.handle('pedidos:getNew', async (_, since) => {
     try {
@@ -166,8 +177,8 @@ function setupIpcHandlers(db) {
       const createTx = db.transaction((pedidoObj) => {
         const numero_pedido = generarNumeroPedido();
         const info = db.prepare(`
-          INSERT INTO pedidos (numero_pedido, cliente_nombre, cliente_tel, direccion, productos, total, metodo_pago, notas, fuente, estado)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'nuevo')
+          INSERT INTO pedidos (numero_pedido, cliente_nombre, cliente_tel, direccion, productos, total, metodo_pago, notas, fuente, estado, tipo_envio, costo_envio, departamento)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'nuevo', ?, ?, ?)
         `).run(
           numero_pedido,
           pedidoObj.cliente_nombre || 'Cliente Manual',
@@ -176,7 +187,10 @@ function setupIpcHandlers(db) {
           pedidoObj.productos || '[]',
           pedidoObj.total || 0,
           pedidoObj.metodo_pago || 'efectivo',
-          pedidoObj.notas || ''
+          pedidoObj.notas || '',
+          pedidoObj.tipo_envio || 'Retiro Local',
+          pedidoObj.costo_envio || 0,
+          pedidoObj.departamento || ''
         );
         const pedidoId = info.lastInsertRowid;
 
@@ -258,7 +272,7 @@ function setupIpcHandlers(db) {
         // 2. Actualizar el pedido
         db.prepare(`
           UPDATE pedidos
-          SET cliente_nombre = ?, cliente_tel = ?, direccion = ?, productos = ?, total = ?, metodo_pago = ?, notas = ?, updated_at = datetime('now')
+          SET cliente_nombre = ?, cliente_tel = ?, direccion = ?, productos = ?, total = ?, metodo_pago = ?, notas = ?, tipo_envio = ?, costo_envio = ?, departamento = ?, updated_at = datetime('now')
           WHERE id = ?
         `).run(
           pedidoObj.cliente_nombre,
@@ -268,6 +282,9 @@ function setupIpcHandlers(db) {
           pedidoObj.total,
           pedidoObj.metodo_pago,
           pedidoObj.notas || '',
+          pedidoObj.tipo_envio || 'Retiro Local',
+          pedidoObj.costo_envio || 0,
+          pedidoObj.departamento || '',
           pedidoObj.id
         );
 

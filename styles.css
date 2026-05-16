@@ -800,6 +800,7 @@ textarea.edit-input { resize: vertical; min-height: 60px; }
   border-bottom: 1px solid var(--border);
   transition: background 0.1s;
 }
+.clickable-row { cursor: pointer; }
 .historial-tabla-row:hover { background: var(--surface2); }
 .hist-numero { color: var(--primary); font-weight: 600; }
 .hist-total { color: #2ecc71; font-weight: 600; }

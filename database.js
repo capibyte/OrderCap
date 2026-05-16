@@ -134,6 +134,9 @@ function initDatabase() {
   try { db.exec("ALTER TABLE insumos ADD COLUMN categoria_id INTEGER REFERENCES categorias(id);"); } catch (e) { }
   try { db.prepare('ALTER TABLE pedidos ADD COLUMN direccion TEXT DEFAULT ""').run(); } catch (e) { }
   try { db.prepare('ALTER TABLE pedidos ADD COLUMN archivado INTEGER DEFAULT 0').run(); } catch (e) { }
+  try { db.prepare('ALTER TABLE pedidos ADD COLUMN tipo_envio TEXT DEFAULT "Retiro Local"').run(); } catch (e) { }
+  try { db.prepare('ALTER TABLE pedidos ADD COLUMN costo_envio REAL DEFAULT 0').run(); } catch (e) { }
+  try { db.prepare('ALTER TABLE pedidos ADD COLUMN departamento TEXT DEFAULT ""').run(); } catch (e) { }
 
   // Insertar config por defecto si no existe
   const insertConfig = db.prepare(`

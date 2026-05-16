@@ -107,8 +107,9 @@ async function printTicket(pedido) {
     productos = [{ nombre: pedido.productos, cantidad: 1, precio: pedido.total }];
   }
 
-  const negocio = config.nombre_negocio || 'Burger House';
-  const direccion = config.direccion_negocio || '';
+  const negocio = config.negocio_nombre || 'Burger House';
+  const direccion = config.negocio_direccion || '';
+  const web = config.negocio_web || 'www.tupagina.com.ar';
   const ahora = new Date();
   const fechaHora = ahora.toLocaleString('es-AR', {
     dateStyle: 'short',
@@ -137,6 +138,12 @@ async function printTicket(pedido) {
   printer.println(`Fecha:  ${fechaHora}`);
   printer.println(`Cliente: ${pedido.cliente_nombre}`);
   if (pedido.cliente_tel) printer.println(`Tel: ${pedido.cliente_tel}`);
+  
+  printer.println(`Envío: ${pedido.tipo_envio || 'Retiro Local'}`);
+  if (pedido.tipo_envio === 'Delivery') {
+    if (pedido.direccion) printer.println(`Dirección: ${pedido.direccion}`);
+    if (pedido.departamento) printer.println(`Dpto/Piso: ${pedido.departamento}`);
+  }
 
   printer.drawLine();
 
@@ -173,6 +180,14 @@ async function printTicket(pedido) {
 
   printer.drawLine();
 
+  if (pedido.tipo_envio === 'Delivery' && pedido.costo_envio > 0) {
+    const costoStr = formatPrice(pedido.costo_envio);
+    const labelEnvio = 'Costo de Envío:';
+    const espEnvio = ANCHO_TICKET - labelEnvio.length - costoStr.length;
+    printer.println(labelEnvio + ' '.repeat(Math.max(1, espEnvio)) + costoStr);
+    printer.drawLine();
+  }
+
   // Aquí usamos setTextNormal() para que no salga gigante. 
   // Si quisieras que el Total sea grande, podrías usar setTextSize(1, 0) (solo doble ancho).
   printer.setTextNormal();
@@ -201,7 +216,7 @@ async function printTicket(pedido) {
   // ── Pie del ticket ───────────────────────────────────────────────────────
   printer.alignCenter();
   printer.println('¡Gracias por tu pedido!');
-  printer.println('www.tupagina.com.ar');
+  printer.println(web);
 
   // Avanzar papel y cortar
   printer.newLine();

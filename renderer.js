@@ -417,6 +417,13 @@ async function abrirModal(id) {
   if (!pedido && state.archivados) {
     pedido = state.archivados.find(p => p.id === id);
   }
+  // Si no está en memoria, lo cargamos directamente del backend
+  if (!pedido) {
+    const res = await window.electronAPI.getPedidoById(id);
+    if (res && res.ok && res.data) {
+      pedido = res.data;
+    }
+  }
   if (!pedido) return;
 
   // Siempre refresca productos para evitar datos desactualizados
@@ -467,10 +474,11 @@ function renderizarModalContenido() {
   const modal = document.getElementById('modal-pedido');
   const contenido = modal.querySelector('.modal-body');
 
-  // Si está archivado, es SIEMPRE solo lectura
+  // Si está archivado, cancelado o entregado, es SIEMPRE solo lectura
   const esArchivado = !!pedido.archivado;
   const esCancelado = pedido.estado === 'cancelado';
-  const soloLectura = esCancelado || esArchivado;
+  const esEntregado = pedido.estado === 'entregado';
+  const soloLectura = esCancelado || esArchivado || esEntregado;
 
   // Ajustar visibilidad de botones según estado y modo
   const btnEditar = document.getElementById('btn-editar-pedido');
@@ -503,7 +511,7 @@ function renderizarModalContenido() {
         <div>
           <label>Estado</label>
           ${soloLectura
-        ? `<span class="estado-cancelado-badge">${esArchivado ? '📦 Archivado' : '❌ Cancelado'}</span>`
+        ? `<span class="lista-estado estado-${pedido.estado}">${ESTADOS[pedido.estado]?.emoji || ''} ${ESTADOS[pedido.estado]?.label || pedido.estado}</span>`
         : `<select id="modal-estado" class="estado-select">
             <option value="nuevo"     ${pedido.estado === 'nuevo' ? 'selected' : ''}>🆕 Nuevo</option>
             <option value="esperando" ${pedido.estado === 'esperando' ? 'selected' : ''}>⏳ En Preparacion</option>
@@ -524,6 +532,15 @@ function renderizarModalContenido() {
         <div>
           <label>Pago</label>
           <strong>${(pedido.metodo_pago || 'efectivo').toUpperCase()}</strong>
+        </div>
+        <div>
+          <label>Envío</label>
+          <strong>${pedido.tipo_envio || 'Retiro Local'}</strong>
+          ${pedido.tipo_envio === 'Delivery' && pedido.costo_envio ? `<span class="tel">+$${pedido.costo_envio}</span>` : ''}
+        </div>
+        <div>
+          <label>Dpto / Piso</label>
+          <strong>${pedido.departamento ? escapeHtml(pedido.departamento) : 'No'}</strong>
         </div>
       </div>
 
@@ -579,6 +596,24 @@ function renderizarModalContenido() {
           <input type="text" id="edit-direccion" class="edit-input" value="${escapeHtml(pedido.direccion || '')}">
         </div>
         <div>
+          <label>Dpto / Piso</label>
+          <div style="display:flex; gap:5px; margin-top:5px;">
+            <select id="edit-tiene-dpto" class="edit-input" style="width:70px;">
+              <option value="No" ${!pedido.departamento ? 'selected' : ''}>No</option>
+              <option value="Si" ${pedido.departamento ? 'selected' : ''}>Sí</option>
+            </select>
+            <input type="text" id="edit-departamento" class="edit-input" style="display: ${pedido.departamento ? 'block' : 'none'}; flex:1;" placeholder="Ej: 3B" value="${escapeHtml(pedido.departamento || '')}">
+          </div>
+        </div>
+        <div>
+          <label>Tipo de Envío</label>
+          <select id="edit-tipo-envio" class="edit-input">
+            <option value="Retiro Local" ${pedido.tipo_envio === 'Retiro Local' || !pedido.tipo_envio ? 'selected' : ''}>Retiro Local</option>
+            <option value="Delivery" ${pedido.tipo_envio === 'Delivery' ? 'selected' : ''}>Delivery</option>
+          </select>
+          <input type="number" id="edit-costo-envio" class="edit-input" style="margin-top:5px; display: ${pedido.tipo_envio === 'Delivery' ? 'block' : 'none'}" placeholder="Costo de envío ($)" value="${pedido.costo_envio || ''}">
+        </div>
+        <div>
           <label>Pago</label>
           <select id="edit-pago" class="edit-input">
             <option value="efectivo" ${pedido.metodo_pago === 'efectivo' ? 'selected' : ''}>Efectivo</option>
@@ -613,6 +648,26 @@ function renderizarModalContenido() {
       const idx = container.children.length;
       container.insertAdjacentHTML('beforeend', generarFilaProducto({ nombre: '', cantidad: 1, precio: 0 }, idx));
       bindProductEvents();
+    });
+
+    const tipoEnvioSelect = document.getElementById('edit-tipo-envio');
+    const costoEnvioInput = document.getElementById('edit-costo-envio');
+    tipoEnvioSelect.addEventListener('change', () => {
+      costoEnvioInput.style.display = tipoEnvioSelect.value === 'Delivery' ? 'block' : 'none';
+      if (tipoEnvioSelect.value !== 'Delivery') {
+        costoEnvioInput.value = '';
+      }
+      recalcularTotal();
+    });
+    costoEnvioInput.addEventListener('input', recalcularTotal);
+
+    const tieneDptoSelect = document.getElementById('edit-tiene-dpto');
+    const dptoInput = document.getElementById('edit-departamento');
+    tieneDptoSelect.addEventListener('change', () => {
+      dptoInput.style.display = tieneDptoSelect.value === 'Si' ? 'block' : 'none';
+      if (tieneDptoSelect.value !== 'Si') {
+        dptoInput.value = '';
+      }
     });
 
     bindProductEvents();
@@ -687,6 +742,11 @@ async function recalcularTotal() {
     }
   });
 
+  const costoEnvioInput = document.getElementById('edit-costo-envio');
+  if (costoEnvioInput && costoEnvioInput.style.display !== 'none') {
+    total += parseFloat(costoEnvioInput.value) || 0;
+  }
+
   document.getElementById('edit-total').value = total;
 
   if (productosSeleccionados.length > 0) {
@@ -757,7 +817,10 @@ async function guardarPedidoEditado() {
     metodo_pago: document.getElementById('edit-pago').value,
     notas: document.getElementById('edit-notas').value,
     total: parseFloat(document.getElementById('edit-total').value) || 0,
-    productos: JSON.stringify(productos)
+    productos: JSON.stringify(productos),
+    tipo_envio: document.getElementById('edit-tipo-envio').value,
+    costo_envio: parseFloat(document.getElementById('edit-costo-envio').value) || 0,
+    departamento: document.getElementById('edit-tiene-dpto').value === 'Si' ? document.getElementById('edit-departamento').value : ''
   };
 
   let result;
@@ -1697,7 +1760,7 @@ function renderizarHistorialVentas(pedidos, container) {
           try { prods = JSON.parse(p.productos); } catch {}
           const resumen = Array.isArray(prods) ? prods.slice(0,2).map(x => `${x.cantidad||1}x ${x.nombre||x.name}`).join(', ') : '';
           return `
-            <div class="historial-tabla-row">
+            <div class="historial-tabla-row clickable-row" onclick="abrirModal(${p.id})">
               <span class="hist-numero">${p.numero_pedido || '#'+p.id}</span>
               <span>${escapeHtml(p.cliente_nombre)}</span>
               <span class="hist-prods">${escapeHtml(resumen)}</span>
@@ -1735,17 +1798,26 @@ async function cargarArchivados() {
         <span>Pedido</span><span>Cliente</span><span>Estado</span><span>Total</span><span>Fecha</span><span>Acción</span>
       </div>
       ${res.data.map(p => `
-        <div class="historial-tabla-row clickable-row" onclick="abrirModal(${p.id})">
+        <div class="historial-tabla-row clickable-row" data-id="${p.id}">
           <span class="hist-numero">${p.numero_pedido || '#'+p.id}</span>
           <span>${escapeHtml(p.cliente_nombre)}</span>
           <span class="lista-estado estado-${p.estado}">${ESTADOS[p.estado]?.emoji || ''} ${ESTADOS[p.estado]?.label || p.estado}</span>
           <span class="hist-total">$${parseFloat(p.total||0).toLocaleString('es-AR')}</span>
           <span class="hist-fecha">${new Date(p.created_at).toLocaleDateString('es-AR')}</span>
-          <button class="btn btn-small btn-primary btn-entregar-arch" data-id="${p.id}" onclick="event.stopPropagation()">✅ Entregado</button>
+          <button class="btn btn-small btn-primary btn-entregar-arch" data-id="${p.id}" style="font-size: 11px;">✔✔ Entregado</button>
         </div>
       `).join('')}
     </div>
   `;
+
+  // Click en la fila → abrir modal en modo solo lectura
+  container.querySelectorAll('.clickable-row').forEach(row => {
+    row.addEventListener('click', async () => {
+      const id = parseInt(row.dataset.id);
+      await abrirModal(id);
+      document.getElementById('modal-pedido').classList.add('visible');
+    });
+  });
 
   container.querySelectorAll('.btn-entregar-arch').forEach(btn => {
     btn.addEventListener('click', async (e) => {
@@ -1754,6 +1826,7 @@ async function cargarArchivados() {
       // Actualizar a estado 'entregado'
       const res = await window.electronAPI.updateEstadoPedido(id, 'entregado');
       if (res.ok) {
+        await window.electronAPI.desarchivarPedido(id);
         mostrarToast('📦 Pedido marcado como entregado', 'success');
         await cargarPedidosIniciales();
         cargarArchivados();
@@ -1796,6 +1869,15 @@ document.getElementById('btn-configuracion')?.addEventListener('click', async ()
     if (resConfig.data.impresora_ancho) {
       selectWidth.value = resConfig.data.impresora_ancho;
     }
+    if (resConfig.data.negocio_nombre) {
+      document.getElementById('config-empresa-nombre').value = resConfig.data.negocio_nombre;
+    }
+    if (resConfig.data.negocio_direccion) {
+      document.getElementById('config-empresa-direccion').value = resConfig.data.negocio_direccion;
+    }
+    if (resConfig.data.negocio_web) {
+      document.getElementById('config-empresa-web').value = resConfig.data.negocio_web;
+    }
   }
 
   modal.classList.add('visible');
@@ -1808,6 +1890,9 @@ document.getElementById('btn-cerrar-configuracion')?.addEventListener('click', (
 document.getElementById('btn-guardar-configuracion')?.addEventListener('click', async () => {
   const printerName = document.getElementById('config-impresora-nombre').value;
   const paperWidth = document.getElementById('config-impresora-ancho').value;
+  const negocioNombre = document.getElementById('config-empresa-nombre').value;
+  const negocioDireccion = document.getElementById('config-empresa-direccion').value;
+  const negocioWeb = document.getElementById('config-empresa-web').value;
 
   if (!printerName) {
     mostrarToast('❌ Por favor, selecciona una impresora', 'error');
@@ -1816,8 +1901,11 @@ document.getElementById('btn-guardar-configuracion')?.addEventListener('click', 
 
   const res1 = await window.electronAPI.saveConfig('impresora_nombre', printerName);
   const res2 = await window.electronAPI.saveConfig('impresora_ancho', paperWidth);
+  const res3 = await window.electronAPI.saveConfig('negocio_nombre', negocioNombre);
+  const res4 = await window.electronAPI.saveConfig('negocio_direccion', negocioDireccion);
+  const res5 = await window.electronAPI.saveConfig('negocio_web', negocioWeb);
 
-  if (res1.ok && res2.ok) {
+  if (res1.ok && res2.ok && res3.ok && res4.ok && res5.ok) {
     mostrarToast('✅ Configuración guardada', 'success');
     document.getElementById('modal-configuracion').classList.remove('visible');
   } else {
