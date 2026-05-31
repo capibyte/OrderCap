@@ -13,6 +13,7 @@ const path = require('path');
 // Módulos propios (los crearemos a continuación)
 const { initDatabase, generarNumeroPedido } = require('./database');
 const { printTicket } = require('./printer');
+const { startServer } = require('./server');
 
 // ─── Configuración ─────────────────────────────────────────────────────────
 
@@ -35,7 +36,7 @@ function createWindow() {
     height: WINDOW_HEIGHT,
     minWidth: 900,
     minHeight: 600,
-    title: '🍔 Burger Orders',
+    title: '🍔 CapiMenu',
     icon: iconExists ? iconPath : undefined,
     webPreferences: {
       // ⚠️ SEGURIDAD: preload.js es el único puente entre renderer y main
@@ -120,7 +121,7 @@ function setupIpcHandlers(db) {
 
   // ── PEDIDOS: Actualizar estado ───────────────────────────────────────────
   ipcMain.handle('pedidos:updateEstado', async (_, { id, estado }) => {
-    const estadosValidos = ['nuevo', 'en_preparacion', 'esperando', 'listo', 'entregado', 'cancelado'];
+    const estadosValidos = ['nuevo', 'en_preparacion', 'esperando', 'listo', 'entregado', 'cancelado', 'desperdicio'];
     if (!estadosValidos.includes(estado)) {
       return { ok: false, error: `Estado invalido: ${estado}` };
     }
@@ -151,6 +152,10 @@ function setupIpcHandlers(db) {
         for (const p of productos) {
           const cantidadPedida = p.cantidad || 1;
           if (p.producto_id) {
+            const prod = db.prepare(`SELECT controla_stock FROM productos WHERE id = ?`).get(p.producto_id);
+            if (prod && prod.controla_stock === 0) {
+              continue; // No controla stock
+            }
             const receta = db.prepare(`SELECT insumo_id, cantidad_necesaria FROM recetas WHERE producto_id = ?`).all(p.producto_id);
             if (receta.length > 0) {
               for (const r of receta) {
@@ -159,6 +164,17 @@ function setupIpcHandlers(db) {
               }
             } else {
               db.prepare(`UPDATE productos SET stock_actual = stock_actual + ? WHERE id = ?`).run(cantidadPedida, p.producto_id);
+            }
+          }
+          
+          // Devolver stock de las opciones personalizadas
+          if (p.personalizacion && p.personalizacion.opciones) {
+            for (const opt of p.personalizacion.opciones) {
+              const recetaOpcion = db.prepare(`SELECT insumo_id, cantidad_necesaria FROM recetas_opciones WHERE opcion_id = ?`).all(opt.id);
+              for (const ro of recetaOpcion) {
+                const cantOpt = ro.cantidad_necesaria * cantidadPedida;
+                db.prepare(`UPDATE insumos SET cantidad_actual = cantidad_actual + ? WHERE id = ?`).run(cantOpt, ro.insumo_id);
+              }
             }
           }
         }
@@ -204,6 +220,10 @@ function setupIpcHandlers(db) {
           const cantidadPedida = p.cantidad || 1;
           
           if (p.producto_id) {
+            const prod = db.prepare(`SELECT controla_stock FROM productos WHERE id = ?`).get(p.producto_id);
+            if (prod && prod.controla_stock === 0) {
+              continue; // No controla stock
+            }
             const receta = db.prepare(`SELECT insumo_id, cantidad_necesaria FROM recetas WHERE producto_id = ?`).all(p.producto_id);
             if (receta.length > 0) {
               for (const r of receta) {
@@ -217,6 +237,22 @@ function setupIpcHandlers(db) {
               }
             } else {
               db.prepare(`UPDATE productos SET stock_actual = stock_actual - ? WHERE id = ?`).run(cantidadPedida, p.producto_id);
+            }
+          }
+          
+          // Descontar stock de opciones personalizadas
+          if (p.personalizacion && p.personalizacion.opciones) {
+            for (const opt of p.personalizacion.opciones) {
+              const recetaOpcion = db.prepare(`SELECT insumo_id, cantidad_necesaria FROM recetas_opciones WHERE opcion_id = ?`).all(opt.id);
+              for (const ro of recetaOpcion) {
+                const cantOpt = ro.cantidad_necesaria * cantidadPedida;
+                db.prepare(`UPDATE insumos SET cantidad_actual = cantidad_actual - ? WHERE id = ?`).run(cantOpt, ro.insumo_id);
+                
+                const insumo = db.prepare(`SELECT nombre, cantidad_actual, punto_reposicion FROM insumos WHERE id = ?`).get(ro.insumo_id);
+                if (insumo && insumo.cantidad_actual <= insumo.punto_reposicion) {
+                  alertas.push(insumo.nombre);
+                }
+              }
             }
           }
         }
@@ -255,6 +291,10 @@ function setupIpcHandlers(db) {
           for (const p of oldProductos) {
             const cant = p.cantidad || 1;
             if (p.producto_id) {
+              const prod = db.prepare(`SELECT controla_stock FROM productos WHERE id = ?`).get(p.producto_id);
+              if (prod && prod.controla_stock === 0) {
+                continue; // No controla stock
+              }
               const receta = db.prepare(`SELECT insumo_id, cantidad_necesaria FROM recetas WHERE producto_id = ?`).all(p.producto_id);
               if (receta.length > 0) {
                 for (const r of receta) {
@@ -264,6 +304,16 @@ function setupIpcHandlers(db) {
               } else {
                 db.prepare(`UPDATE productos SET stock_actual = stock_actual + ? WHERE id = ?`)
                   .run(cant, p.producto_id);
+              }
+            }
+            
+            if (p.personalizacion && p.personalizacion.opciones) {
+              for (const opt of p.personalizacion.opciones) {
+                const recetaOpcion = db.prepare(`SELECT insumo_id, cantidad_necesaria FROM recetas_opciones WHERE opcion_id = ?`).all(opt.id);
+                for (const ro of recetaOpcion) {
+                  const cantOpt = ro.cantidad_necesaria * cant;
+                  db.prepare(`UPDATE insumos SET cantidad_actual = cantidad_actual + ? WHERE id = ?`).run(cantOpt, ro.insumo_id);
+                }
               }
             }
           }
@@ -300,6 +350,10 @@ function setupIpcHandlers(db) {
           for (const p of newProductos) {
             const cant = p.cantidad || 1;
             if (p.producto_id) {
+              const prod = db.prepare(`SELECT controla_stock FROM productos WHERE id = ?`).get(p.producto_id);
+              if (prod && prod.controla_stock === 0) {
+                continue; // No controla stock
+              }
               const receta = db.prepare(`SELECT insumo_id, cantidad_necesaria FROM recetas WHERE producto_id = ?`).all(p.producto_id);
               if (receta.length > 0) {
                 for (const r of receta) {
@@ -315,6 +369,21 @@ function setupIpcHandlers(db) {
               } else {
                 db.prepare(`UPDATE productos SET stock_actual = stock_actual - ? WHERE id = ?`)
                   .run(cant, p.producto_id);
+              }
+            }
+            
+            if (p.personalizacion && p.personalizacion.opciones) {
+              for (const opt of p.personalizacion.opciones) {
+                const recetaOpcion = db.prepare(`SELECT insumo_id, cantidad_necesaria FROM recetas_opciones WHERE opcion_id = ?`).all(opt.id);
+                for (const ro of recetaOpcion) {
+                  const cantOpt = ro.cantidad_necesaria * cant;
+                  db.prepare(`UPDATE insumos SET cantidad_actual = cantidad_actual - ? WHERE id = ?`).run(cantOpt, ro.insumo_id);
+                  
+                  const insumo = db.prepare(`SELECT nombre, cantidad_actual, punto_reposicion FROM insumos WHERE id = ?`).get(ro.insumo_id);
+                  if (insumo && insumo.cantidad_actual <= insumo.punto_reposicion) {
+                    alertas.push(insumo.nombre);
+                  }
+                }
               }
             }
           }
@@ -413,14 +482,14 @@ function setupIpcHandlers(db) {
 
   ipcMain.handle('productos:create', async (_, prod) => {
     try {
-      const info = db.prepare(`INSERT INTO productos (nombre, precio, categoria, stock_actual, categoria_id) VALUES (?, ?, ?, ?, ?)`).run(prod.nombre, prod.precio || 0, prod.categoria || null, prod.stock_actual || 0, prod.categoria_id || null);
+      const info = db.prepare(`INSERT INTO productos (nombre, precio, categoria, stock_actual, categoria_id, controla_stock) VALUES (?, ?, ?, ?, ?, ?)`).run(prod.nombre, prod.precio || 0, prod.categoria || null, prod.stock_actual || 0, prod.categoria_id || null, prod.controla_stock ?? 1);
       return { ok: true, id: info.lastInsertRowid };
     } catch (err) { return { ok: false, error: err.message }; }
   });
 
   ipcMain.handle('productos:update', async (_, prod) => {
     try {
-      db.prepare(`UPDATE productos SET nombre=?, precio=?, categoria=?, stock_actual=?, categoria_id=? WHERE id=?`).run(prod.nombre, prod.precio || 0, prod.categoria || null, prod.stock_actual || 0, prod.categoria_id || null, prod.id);
+      db.prepare(`UPDATE productos SET nombre=?, precio=?, categoria=?, stock_actual=?, categoria_id=?, controla_stock=? WHERE id=?`).run(prod.nombre, prod.precio || 0, prod.categoria || null, prod.stock_actual || 0, prod.categoria_id || null, prod.controla_stock ?? 1, prod.id);
       return { ok: true };
     } catch (err) { return { ok: false, error: err.message }; }
   });
@@ -428,6 +497,146 @@ function setupIpcHandlers(db) {
   ipcMain.handle('productos:delete', async (_, id) => {
     try {
       db.prepare(`DELETE FROM productos WHERE id=?`).run(id);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('productos:getDetallePersonalizacion', async (_, producto_id) => {
+    try {
+      const producto = db.prepare(`SELECT * FROM productos WHERE id = ?`).get(producto_id);
+      if (!producto) return { ok: false, error: 'Producto no encontrado' };
+
+      // Obtener grupos vinculados al producto
+      const grupos = db.prepare(`
+        SELECT g.* 
+        FROM grupos_opciones g
+        JOIN producto_grupos pg ON g.id = pg.grupo_id
+        WHERE pg.producto_id = ?
+        ORDER BY pg.prioridad ASC
+      `).all(producto_id);
+
+      // Para cada grupo, obtener sus opciones
+      for (const grupo of grupos) {
+        grupo.opciones = db.prepare(`
+          SELECT * FROM opciones WHERE grupo_id = ?
+        `).all(grupo.id);
+      }
+
+      producto.grupos = grupos;
+      return { ok: true, data: producto };
+    } catch (err) {
+      console.error('[IPC] productos:getDetallePersonalizacion error:', err);
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ── GRUPOS DE OPCIONES (Combos) ──────────────────────────────────────────
+  ipcMain.handle('grupos:getAll', async () => {
+    try {
+      const grupos = db.prepare(`
+        SELECT g.*, COUNT(o.id) as num_opciones
+        FROM grupos_opciones g
+        LEFT JOIN opciones o ON g.id = o.grupo_id
+        GROUP BY g.id
+        ORDER BY g.id ASC
+      `).all();
+      return { ok: true, data: grupos };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('grupos:create', async (_, { nombre, min_seleccion, max_seleccion }) => {
+    try {
+      const r = db.prepare(`INSERT INTO grupos_opciones (nombre, min_seleccion, max_seleccion) VALUES (?, ?, ?)`).run(nombre, min_seleccion ?? 1, max_seleccion ?? 1);
+      return { ok: true, id: r.lastInsertRowid };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('grupos:update', async (_, { id, nombre, min_seleccion, max_seleccion }) => {
+    try {
+      db.prepare(`UPDATE grupos_opciones SET nombre = ?, min_seleccion = ?, max_seleccion = ? WHERE id = ?`).run(nombre, min_seleccion, max_seleccion, id);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('grupos:delete', async (_, id) => {
+    try {
+      db.prepare(`DELETE FROM grupos_opciones WHERE id = ?`).run(id);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  // ── OPCIONES ─────────────────────────────────────────────────────────────
+  ipcMain.handle('opciones:getByGrupo', async (_, grupo_id) => {
+    try {
+      const opciones = db.prepare(`SELECT * FROM opciones WHERE grupo_id = ? ORDER BY id ASC`).all(grupo_id);
+      return { ok: true, data: opciones };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('opciones:create', async (_, { grupo_id, nombre, precio_extra }) => {
+    try {
+      const r = db.prepare(`INSERT INTO opciones (grupo_id, nombre, precio_extra) VALUES (?, ?, ?)`).run(grupo_id, nombre, precio_extra ?? 0);
+      return { ok: true, id: r.lastInsertRowid };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('opciones:update', async (_, { id, nombre, precio_extra }) => {
+    try {
+      db.prepare(`UPDATE opciones SET nombre = ?, precio_extra = ? WHERE id = ?`).run(nombre, precio_extra, id);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('opciones:delete', async (_, id) => {
+    try {
+      db.prepare(`DELETE FROM opciones WHERE id = ?`).run(id);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  // ── RECETAS DE OPCIONES ──────────────────────────────────────────────────
+  ipcMain.handle('recetas_opciones:getByOpcion', async (_, opcion_id) => {
+    try {
+      const items = db.prepare(`
+        SELECT ro.*, i.nombre as insumo_nombre, i.unidad_medida
+        FROM recetas_opciones ro
+        JOIN insumos i ON ro.insumo_id = i.id
+        WHERE ro.opcion_id = ?
+      `).all(opcion_id);
+      return { ok: true, data: items };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('recetas_opciones:save', async (_, { opcion_id, items }) => {
+    try {
+      const tx = db.transaction(() => {
+        db.prepare(`DELETE FROM recetas_opciones WHERE opcion_id = ?`).run(opcion_id);
+        const stmt = db.prepare(`INSERT INTO recetas_opciones (opcion_id, insumo_id, cantidad_necesaria) VALUES (?, ?, ?)`);
+        for (const item of items) {
+          stmt.run(opcion_id, item.insumo_id, item.cantidad_necesaria);
+        }
+      });
+      tx();
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  // ── PRODUCTO_GRUPOS ──────────────────────────────────────────────────────
+  ipcMain.handle('producto_grupos:getByProducto', async (_, producto_id) => {
+    try {
+      const rows = db.prepare(`SELECT grupo_id FROM producto_grupos WHERE producto_id = ? ORDER BY prioridad ASC`).all(producto_id);
+      return { ok: true, data: rows.map(r => r.grupo_id) };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('producto_grupos:save', async (_, { producto_id, grupo_ids }) => {
+    try {
+      const tx = db.transaction(() => {
+        db.prepare(`DELETE FROM producto_grupos WHERE producto_id = ?`).run(producto_id);
+        const stmt = db.prepare(`INSERT INTO producto_grupos (producto_id, grupo_id, prioridad) VALUES (?, ?, ?)`);
+        (grupo_ids || []).forEach((gid, idx) => stmt.run(producto_id, gid, idx));
+      });
+      tx();
       return { ok: true };
     } catch (err) { return { ok: false, error: err.message }; }
   });
@@ -509,13 +718,16 @@ function setupIpcHandlers(db) {
 
       for (const p of productos) {
         if (!p.producto_id) continue;
+        const prod = db.prepare(`SELECT stock_actual, nombre, controla_stock FROM productos WHERE id = ?`).get(p.producto_id);
+        if (prod && prod.controla_stock === 0) {
+          continue; // No controla stock
+        }
         const receta = db.prepare(`SELECT insumo_id, cantidad_necesaria FROM recetas WHERE producto_id = ?`).all(p.producto_id);
         if (receta.length > 0) {
           for (const r of receta) {
             requirements[r.insumo_id] = (requirements[r.insumo_id] || 0) + (r.cantidad_necesaria * p.cantidad);
           }
         } else {
-          const prod = db.prepare(`SELECT stock_actual, nombre FROM productos WHERE id = ?`).get(p.producto_id);
           if (prod) {
             const availableStock = prod.stock_actual + (reservedQuantities[p.producto_id] || 0);
             if (availableStock < p.cantidad) {
@@ -609,6 +821,35 @@ function setupIpcHandlers(db) {
     }
   });
 
+  // ── IMPRESIÓN: Listar impresoras del sistema Windows (via PowerShell) ─────
+  // Más confiable que getPrintersAsync() para impresoras térmicas USB
+  ipcMain.handle('printer:listSystem', async () => {
+    try {
+      const { exec } = require('child_process');
+      return await new Promise((resolve) => {
+        exec(
+          'powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Printer | Select-Object -ExpandProperty Name | ConvertTo-Json -Compress"',
+          { timeout: 8000 },
+          (error, stdout, stderr) => {
+            if (error || !stdout.trim()) {
+              resolve({ ok: false, error: 'No se pudieron listar las impresoras.' });
+              return;
+            }
+            try {
+              let names = JSON.parse(stdout.trim());
+              if (typeof names === 'string') names = [names]; // si solo hay una
+              resolve({ ok: true, data: names });
+            } catch {
+              resolve({ ok: false, error: 'Error al parsear la lista de impresoras.' });
+            }
+          }
+        );
+      });
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   // ── NOTIFICACIONES: Mostrar notificación nativa ───────────────────────────
   ipcMain.on('notify:newOrder', (_, { title, body }) => {
     if (Notification.isSupported()) {
@@ -635,6 +876,14 @@ function setupIpcHandlers(db) {
       db.prepare(`
         UPDATE pedidos SET archivado = 1, updated_at = datetime('now')
         WHERE archivado = 0
+      `).run();
+
+      // 1b. Purgar archivados con más de 3 días de antigüedad (borrado definitivo)
+      db.prepare(`
+        DELETE FROM pedidos
+        WHERE archivado = 1
+        AND estado NOT IN ('entregado', 'cancelado', 'desperdicio')
+        AND julianday('now') - julianday(created_at) > 3
       `).run();
 
       // 2. Purga por mes calendario completo
@@ -715,7 +964,7 @@ function setupIpcHandlers(db) {
   // ── TIENDA: Stock para checklist de apertura ──────────────────────────────
   ipcMain.handle('tienda:getStockApertura', async () => {
     try {
-      const productos = db.prepare(`SELECT id, nombre, stock_actual FROM productos WHERE stock_actual > 0 ORDER BY nombre ASC`).all();
+      const productos = db.prepare(`SELECT id, nombre, stock_actual FROM productos WHERE stock_actual > 0 AND (controla_stock IS NULL OR controla_stock != 0) ORDER BY nombre ASC`).all();
       const insumos = db.prepare(`SELECT id, nombre, cantidad_actual, unidad_medida FROM insumos WHERE cantidad_actual > 0 ORDER BY nombre ASC`).all();
       return { ok: true, productos, insumos };
     } catch (err) {
@@ -766,7 +1015,7 @@ function setupIpcHandlers(db) {
     try {
       const pedidos = db.prepare(`
         SELECT * FROM pedidos
-        WHERE archivado = 1 AND estado NOT IN ('entregado', 'cancelado')
+        WHERE archivado = 1 AND estado NOT IN ('entregado', 'cancelado', 'desperdicio')
         ORDER BY created_at DESC
         LIMIT 200
       `).all();
@@ -839,11 +1088,27 @@ app.whenReady().then(() => {
   const db = initDatabase();
   console.log('[Main] Base de datos SQLite inicializada');
 
+  // Purgar pedidos archivados con más de 3 días de antigüedad (borrado definitivo)
+  try {
+    db.prepare(`
+      DELETE FROM pedidos
+      WHERE archivado = 1
+      AND estado NOT IN ('entregado', 'cancelado', 'desperdicio')
+      AND julianday('now') - julianday(created_at) > 3
+    `).run();
+    console.log('[Main] Purgado de pedidos archivados antiguos completado');
+  } catch (err) {
+    console.error('[Main] Error al purgar pedidos archivados:', err);
+  }
+
   // 2. Registrar todos los handlers IPC
   setupIpcHandlers(db);
   console.log('[Main] Handlers IPC registrados');
 
-  // 3. Crear la ventana principal
+  // 3. Levantar servidor HTTP interno (Express)
+  startServer();
+
+  // 4. Crear la ventana principal
   createWindow();
 
   // macOS: re-crear ventana si se cierra y se reactiva el dock

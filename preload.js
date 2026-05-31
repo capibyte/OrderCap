@@ -84,6 +84,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createProducto: (prod) => ipcRenderer.invoke('productos:create', prod),
   updateProducto: (prod) => ipcRenderer.invoke('productos:update', prod),
   deleteProducto: (id) => ipcRenderer.invoke('productos:delete', id),
+  getDetallePersonalizacion: (id) => ipcRenderer.invoke('productos:getDetallePersonalizacion', id),
 
   getInsumos: () => ipcRenderer.invoke('insumos:getAll'),
   createInsumo: (insumo) => ipcRenderer.invoke('insumos:create', insumo),
@@ -110,11 +111,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('printer:print', pedido),
 
   /**
-   * Listar impresoras disponibles en el sistema
+   * Listar impresoras disponibles en el sistema (via Electron)
    * @returns {Promise<{ok: boolean, data: Printer[]}>}
    */
   listPrinters: () =>
     ipcRenderer.invoke('printer:list'),
+
+  /**
+   * Listar impresoras del sistema Windows (via PowerShell - más confiable para térmicas USB)
+   * @returns {Promise<{ok: boolean, data: string[]}>}
+   */
+  listSystemPrinters: () =>
+    ipcRenderer.invoke('printer:listSystem'),
 
   // ─── NOTIFICACIONES ─────────────────────────────────────────────────────
 
@@ -199,9 +207,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveConfig: (clave, valor) =>
     ipcRenderer.invoke('config:save', { clave, valor }),
 
-  // ─── DIALOGOS NATIVOS ───────────────────────────────────────────────────
+  // ─── DIALOGOS NATIVOS ───────────────────────────────────────────────────  /** Mostrar dialog de confirmación nativo */
   showConfirmDialog: (message) =>
     ipcRenderer.invoke('dialog:confirm', message),
+
+  // ─── COMBOS / GRUPOS DE OPCIONES ────────────────────────────────────────
+  getGrupos: () => ipcRenderer.invoke('grupos:getAll'),
+  createGrupo: (data) => ipcRenderer.invoke('grupos:create', data),
+  updateGrupo: (data) => ipcRenderer.invoke('grupos:update', data),
+  deleteGrupo: (id) => ipcRenderer.invoke('grupos:delete', id),
+
+  getOpcionesByGrupo: (grupoId) => ipcRenderer.invoke('opciones:getByGrupo', grupoId),
+  createOpcion: (data) => ipcRenderer.invoke('opciones:create', data),
+  updateOpcion: (data) => ipcRenderer.invoke('opciones:update', data),
+  deleteOpcion: (id) => ipcRenderer.invoke('opciones:delete', id),
+
+  getRecetaOpcion: (opcionId) => ipcRenderer.invoke('recetas_opciones:getByOpcion', opcionId),
+  saveRecetaOpcion: (opcionId, items) => ipcRenderer.invoke('recetas_opciones:save', { opcion_id: opcionId, items }),
+
+  getProductoGrupos: (productoId) => ipcRenderer.invoke('producto_grupos:getByProducto', productoId),
+  saveProductoGrupos: (productoId, grupoIds) => ipcRenderer.invoke('producto_grupos:save', { producto_id: productoId, grupo_ids: grupoIds }),
 });
 
 // ── Información de la plataforma (read-only, sin IPC) ─────────────────────

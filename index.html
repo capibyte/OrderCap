@@ -7,7 +7,7 @@
   <!-- CSP: solo permite scripts del mismo origen -->
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
-  <title>🍔 Burger Orders</title>
+  <title>🍔 CapiMenu</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 
@@ -21,7 +21,7 @@
   <!-- ── Header ──────────────────────────────────────────────────── -->
   <header class="app-header">
     <div class="header-left">
-      <h1>🍔 Burger Orders</h1>
+      <h1>🍔 CapiMenu</h1>
       <span id="badge-nuevos" class="badge-nuevos"></span>
     </div>
     <div class="header-center-tienda">
@@ -45,6 +45,7 @@
     <button data-filtro="todos" class="filtro-btn filtro-activo">Todos</button>
     <button data-filtro="entregado" class="filtro-btn">Entregados</button>
     <button data-filtro="cancelado" class="filtro-btn">Cancelados</button>
+    <button data-filtro="desperdicio" class="filtro-btn">Desperdicios</button>
   </div>
 
   <!-- ── Kanban Board ──────────────────────────────────────────── -->
@@ -97,6 +98,7 @@
       <button data-tab="insumos" class="tab-btn tab-activo">📦 Depósito (Insumos)</button>
       <button data-tab="productos" class="tab-btn">🍔 Catálogo (Productos)</button>
       <button data-tab="recetas" class="tab-btn">📝 Recetas</button>
+      <button data-tab="combos" class="tab-btn">🎛️ Combos</button>
       <button data-tab="categorias" class="tab-btn">🏷️ Categorías</button>
     </div>
 
@@ -144,6 +146,25 @@
       </div>
       <div id="lista-categorias"></div>
     </div>
+    <!-- Contenido Combos -->
+    <div id="tab-combos" class="tab-content">
+      <div class="tab-header">
+        <h2>Combos y Opciones</h2>
+        <button id="btn-nuevo-grupo" class="btn btn-primary">+ Nuevo Grupo</button>
+      </div>
+      <div class="combos-layout">
+        <div class="combos-left">
+          <p class="combos-hint">Grupos de opciones compartidos entre productos (ej. Medallones, Acompañamiento, Bebida)</p>
+          <div id="lista-grupos"><!-- grupos dinámicos --></div>
+        </div>
+        <div class="combos-right">
+          <div id="panel-grupo-detalle" class="combos-empty-state">
+            <span>👈</span>
+            <p>Seleccioná un grupo para ver y gestionar sus opciones</p>
+          </div>
+        </div>
+      </div>
+    </div>
   
 
   </main>
@@ -162,6 +183,7 @@
 
       <div class="modal-actions">
         <button id="btn-volver" class="btn btn-secondary">← Volver</button>
+        <button id="btn-desperdicio-pedido" class="btn btn-desperdicio" style="display:none">🗑️ Desperdicio</button>
         <button id="btn-cancelar-pedido" class="btn btn-danger">🗑 Cancelar</button>
         <button id="btn-editar-pedido" class="btn btn-secondary">✏️ Editar</button>
         <button id="btn-guardar-pedido" class="btn btn-primary" style="display:none">💾 Guardar</button>
@@ -208,12 +230,12 @@
 
   <!-- ── Modal Producto ────────────────────────────────────────── -->
   <div id="modal-producto" class="modal-overlay">
-    <div class="modal-container" style="width: 400px;">
+    <div class="modal-container" style="width: 460px; max-height: 90vh;">
       <div class="modal-header">
         <h2 id="modal-producto-title">Nuevo Producto</h2>
         <button class="btn-icon" id="btn-cerrar-modal-producto">✕</button>
       </div>
-      <div class="modal-body">
+      <div class="modal-body" style="overflow-y:auto">
         <input type="hidden" id="producto-id">
         <div class="form-group edit-mode">
            <label>Nombre</label>
@@ -224,8 +246,24 @@
            </select>
            <label>Precio ($)</label>
            <input type="number" id="producto-precio" class="edit-input" step="0.01" style="margin-bottom:10px;">
-           <label>Stock Actual (Solo si NO usa receta)</label>
-           <input type="number" id="producto-stock" class="edit-input">
+           <div id="stock-actual-wrapper">
+             <label>Stock Actual (Solo si NO usa receta)</label>
+             <input type="number" id="producto-stock" class="edit-input" style="margin-bottom:10px;">
+           </div>
+           <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px; user-select:none;">
+             <input type="checkbox" id="producto-controla-stock" checked style="width:16px; height:16px; cursor:pointer; margin:0;">
+             <label for="producto-controla-stock" style="margin-bottom:0; cursor:pointer; font-size:13px; font-weight:500;">NO Maneja Stock</label>
+           </div>
+         </div>
+        <!-- Grupos de personalización -->
+        <div class="producto-grupos-section">
+          <div class="producto-grupos-header">
+            <span>🎛️ Grupos de Opciones (Combos)</span>
+            <small>El modal de personalización aparecerá al cargar este producto en un pedido</small>
+          </div>
+          <div id="producto-grupos-checkboxes" class="producto-grupos-grid">
+            <!-- checkboxes generados dinámicamente -->
+          </div>
         </div>
       </div>
       <div class="modal-actions">
@@ -253,6 +291,67 @@
       </div>
       <div class="modal-actions">
         <button id="btn-guardar-categoria" class="btn btn-primary">💾 Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal Grupo de Opciones ───────────────────────────────── -->
+  <div id="modal-grupo" class="modal-overlay">
+    <div class="modal-container" style="width:380px;">
+      <div class="modal-header">
+        <h2 id="modal-grupo-title">Nuevo Grupo</h2>
+        <button class="btn-icon" id="btn-cerrar-modal-grupo">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="grupo-id">
+        <div class="form-group edit-mode">
+          <label>Nombre del Grupo</label>
+          <input type="text" id="grupo-nombre" class="edit-input" placeholder="Ej: Medallones, Acompañamiento...">
+        </div>
+        <div class="form-group edit-mode" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div>
+            <label>Mín. Selección</label>
+            <input type="number" id="grupo-min" class="edit-input" min="0" value="1">
+          </div>
+          <div>
+            <label>Máx. Selección</label>
+            <input type="number" id="grupo-max" class="edit-input" min="1" value="1">
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-guardar-grupo" class="btn btn-primary">💾 Guardar Grupo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal Opción ───────────────────────────────────────────── -->
+  <div id="modal-opcion" class="modal-overlay">
+    <div class="modal-container" style="width:500px; max-height:90vh">
+      <div class="modal-header">
+        <h2 id="modal-opcion-title">Nueva Opción</h2>
+        <button class="btn-icon" id="btn-cerrar-modal-opcion">✕</button>
+      </div>
+      <div class="modal-body" style="overflow-y:auto">
+        <input type="hidden" id="opcion-id">
+        <input type="hidden" id="opcion-grupo-id">
+        <div class="form-group edit-mode">
+          <label>Nombre de la Opción</label>
+          <input type="text" id="opcion-nombre" class="edit-input" placeholder="ej. Doble Carne, Papas Normales..." style="margin-bottom:12px">
+          <label>Precio Extra ($)</label>
+          <input type="number" id="opcion-precio" class="edit-input" value="0" min="0" step="100" style="margin-bottom:16px">
+          <div class="opcion-receta-section">
+            <div class="opcion-receta-header">
+              <span>🧾 Insumos que descuenta del stock</span>
+              <small>Dejá vacío si no descuenta stock</small>
+            </div>
+            <div id="opcion-receta-items"></div>
+            <button id="btn-add-insumo-opcion" class="btn btn-secondary btn-small" style="margin-top:8px">+ Agregar Insumo</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-guardar-opcion" class="btn btn-primary">💾 Guardar Opción</button>
       </div>
     </div>
   </div>
@@ -309,6 +408,17 @@
       </div>
       <button id="btn-exportar-csv" class="btn btn-primary">⬇️ Exportar CSV</button>
     </div>
+    <div id="historial-filtros-ventas" class="historial-filtros">
+      <div class="form-group">
+        <label>Desde Fecha</label>
+        <input type="date" id="filtro-fecha-desde">
+      </div>
+      <div class="form-group">
+        <label>Hasta Fecha</label>
+        <input type="date" id="filtro-fecha-hasta">
+      </div>
+      <button id="btn-limpiar-fechas" class="btn btn-secondary" style="height: 38px; display: flex; align-items: center; gap: 5px;">🧹 Limpiar</button>
+    </div>
     <div id="historial-ventas" class="historial-content"></div>
     <div id="historial-archivados" class="historial-content" style="display:none"></div>
   </section>
@@ -362,9 +472,15 @@
       <div class="modal-body">
         <div class="form-group edit-mode">
           <label>Impresora Activa</label>
-          <select id="config-impresora-nombre" class="edit-input" style="margin-bottom:20px;">
-            <option value="">Cargando impresoras...</option>
-          </select>
+          <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
+            <select id="config-impresora-nombre" class="edit-input" style="flex:1;">
+              <option value="">Cargando impresoras...</option>
+            </select>
+            <button id="btn-detectar-impresoras" class="btn btn-secondary btn-small" title="Detectar impresoras instaladas en esta computadora" style="white-space:nowrap; height:36px;">🔍 Detectar</button>
+          </div>
+          <small id="config-impresora-hint" style="color:var(--text2); display:block; margin-bottom:16px;">
+            ⚠️ Si usás el programa desde un pendrive en otra PC, el nombre de impresora debe coincidir con la impresora instalada en <strong>esa computadora</strong>. Usá el botón 🔍 para ver las disponibles.
+          </small>
           
           <label>Ancho del Papel (Formato)</label>
           <select id="config-impresora-ancho" class="edit-input" style="margin-bottom:10px;">
@@ -386,6 +502,7 @@
           <label>Página Web / Redes</label>
           <input type="text" id="config-empresa-web" class="edit-input" style="margin-bottom:20px;" placeholder="Ej: www.burgerhouse.com">
         </div>
+
       </div>
       <div class="modal-actions">
         <button id="btn-guardar-configuracion" class="btn btn-primary">💾 Guardar Cambios</button>
@@ -393,7 +510,41 @@
     </div>
   </div>
 
+  <!-- ── MODAL PERSONALIZACIÓN (Combo) ─────────────────────────────────── -->
+  <div id="modal-personalizacion" class="modal-overlay">
+    <div class="modal-container personalization-container">
+      <div class="modal-header">
+        <div class="pers-header-content">
+          <div class="pers-header-icon" id="pers-producto-icono">🍔</div>
+          <div class="pers-header-text">
+            <h2 id="pers-producto-nombre">Personalizar Producto</h2>
+            <p class="pers-precio-base" id="pers-producto-descripcion"></p>
+          </div>
+        </div>
+        <button class="btn-icon" id="btn-cerrar-personalizacion">&times;</button>
+      </div>
+      <div class="pers-body-scroll" id="pers-grupos-container">
+        <!-- Los grupos se renderizan aquí dinámicamente -->
+      </div>
+      <div class="modal-actions-footer">
+        <div class="pers-quantity-selector">
+          <button class="qty-btn" id="pers-qty-minus">−</button>
+          <span id="pers-qty-value">1</span>
+          <button class="qty-btn" id="pers-qty-plus">+</button>
+        </div>
+        <div class="pers-total-box">
+          <span class="label">TOTAL</span>
+          <strong id="pers-total-display">$ 0</strong>
+        </div>
+        <button id="btn-guardar-personalizacion" class="btn btn-primary">✅ Añadir al pedido</button>
+      </div>
+    </div>
+  </div>
+
+
+
   <script src="renderer.js"></script>
+
 </body>
 
 </html>

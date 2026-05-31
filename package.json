@@ -6,32 +6,78 @@
   "scripts": {
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
-    "build": "electron-builder",
+    "build": "electron-builder --win",
     "build:win": "electron-builder --win",
-    "postinstall": "electron-rebuild"
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",
     "electron-store": "^8.2.0",
+    "express": "^5.2.1",
     "node-thermal-printer": "^4.3.4",
     "usb": "^2.12.1"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.6.0",
     "electron": "^29.1.0",
-    "electron-builder": "^24.13.3",
-    "@electron/rebuild": "^3.6.0"
+    "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.tulocal.burger-orders",
-    "productName": "Burger Orders",
+    "appId": "com.capimenu.app",
+    "productName": "CapiMenu",
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node",
+      "**/node_modules/better-sqlite3/**",
+      "**/node_modules/usb/**",
+      "**/node_modules/node-thermal-printer/**"
+    ],
     "directories": {
       "output": "dist"
     },
+    "files": [
+      "**/*",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/.bin",
+      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+      "!.editorconfig",
+      "!**/._*",
+      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,package-lock.json}",
+      "!**/{.travis.yml,.gitlab-ci.yml,appveyor.yml,circle.yml}",
+      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}",
+      "!dist/**"
+    ],
     "win": {
-      "target": ["nsis", "portable", "zip"],
-      "icon": "assets/icon_large.png"
-    }
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon_256.ico",
+      "forceCodeSigning": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CapiMenu",
+      "installerIcon": "assets/icon_256.ico",
+      "uninstallerIcon": "assets/icon_256.ico"
+    },
+    "portable": {
+      "artifactName": "CapiMenu-Portable.exe"
+    },
+    "extraResources": [],
+    "npmRebuild": true
   },
-  "author": "Tu Nombre",
+  "author": "CapiMenu",
   "license": "MIT"
 }

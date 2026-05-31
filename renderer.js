@@ -9,6 +9,7 @@
 const state = {
   pedidos: [],
   archivados: [], // Para poder abrirlos desde el modal
+  historialVentas: [], // Copia del historial de ventas para filtrar
   lastCheck: null,
   pollingInterval: null,
   vistaActual: 'kanban',
@@ -25,9 +26,11 @@ const POLLING_MS = 3000; // Intervalo de polling en ms (3 segundos)
 const ESTADOS = {
   nuevo: { label: 'Nuevo', color: '#e74c3c', emoji: '🆕' },
   esperando: { label: 'En Preparacion', color: '#f39c12', emoji: '⏳' },
+  en_preparacion: { label: 'En Preparacion', color: '#f39c12', emoji: '⏳' },
   listo: { label: 'Listo', color: '#27ae60', emoji: '✅' },
   entregado: { label: 'Entregado', color: '#3498db', emoji: '✔✔' },
   cancelado: { label: 'Cancelado', color: '#7f8c8d', emoji: '❌' },
+  desperdicio: { label: 'Desperdicio', color: '#1a1a1a', emoji: '🗑️' },
 };
 
 const COLUMNAS_KANBAN = ['nuevo', 'esperando', 'listo'];
@@ -152,11 +155,15 @@ function mostrarStatsFooter() {
     !p.archivado && p.estado === 'entregado'
   );
   const totalDinero = entregadosHoy.reduce((acc, p) => acc + (parseFloat(p.total) || 0), 0);
+  const desperdiciosHoy = state.pedidos.filter(p =>
+    !p.archivado && p.estado === 'desperdicio'
+  );
   footer.style.display = 'flex';
   footer.className = 'stats-footer';
   footer.innerHTML = `
     <div class="stats-item">Pedidos Entregados (Hoy): <strong>${entregadosHoy.length}</strong></div>
     <div class="stats-item">Total Recaudado (Hoy): <strong>$${totalDinero.toLocaleString('es-AR')}</strong></div>
+    <div class="stats-item" style="color: #a0a0b8;">Desperdicio: <strong style="color: #a0a0b8;">${desperdiciosHoy.length} Pedidos</strong></div>
   `;
 }
 
@@ -165,13 +172,13 @@ function filtrarPedidos(pedidos) {
   const activos = pedidos.filter(p => !p.archivado);
 
   if (state.filtroEstado === 'activos') {
-    return activos.filter(p => ['nuevo', 'esperando', 'listo'].includes(p.estado));
+    return activos.filter(p => ['nuevo', 'esperando', 'en_preparacion', 'listo'].includes(p.estado));
   }
   if (state.filtroEstado === 'todos') return activos;
   if (state.filtroEstado === 'entregado') {
     return activos.filter(p => p.estado === 'entregado');
   }
-  return activos.filter(p => p.estado === state.filtroEstado);
+  return activos.filter(p => p.estado === state.filtroEstado || (state.filtroEstado === 'esperando' && p.estado === 'en_preparacion'));
 }
 
 // ─── Kanban ────────────────────────────────────────────────────────────────
@@ -180,7 +187,7 @@ function renderizarKanban(pedidos) {
     const columna = document.getElementById(`col-${estado}`);
     if (!columna) return;
 
-    const pedidosColumna = pedidos.filter(p => p.estado === estado);
+    const pedidosColumna = pedidos.filter(p => p.estado === estado || (estado === 'esperando' && p.estado === 'en_preparacion'));
     const lista = columna.querySelector('.kanban-cards');
     if (!lista) return;
 
@@ -216,6 +223,20 @@ function renderizarKanban(pedidos) {
       } else {
         mostrarToast('❌ Error al cancelar: ' + (result.error || 'Error desconocido'), 'error');
       }
+    });
+  });
+
+  // Botones de acción rápida — desperdicio
+  document.querySelectorAll('.quick-btn-desperdicio').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id);
+      const pedido = state.pedidos.find(p => p.id === id);
+      if (!pedido) return;
+      const confirmar = confirm(`¿Marcar el pedido ${pedido.numero_pedido || '#' + pedido.id} de ${pedido.cliente_nombre} como Desperdicio?`);
+      if (!confirmar) return;
+      await cambiarEstado(id, 'desperdicio');
+      mostrarToast('🗑️ Pedido marcado como desperdicio', 'warning');
     });
   });
 
@@ -375,6 +396,25 @@ function crearCardHTML(pedido) {
     ? productos.slice(0, 3).map(p => `${p.cantidad || 1}x ${p.nombre || p.name}`).join(' · ')
     : String(pedido.productos).substring(0, 60);
 
+  let chipsHtml = '';
+  if (Array.isArray(productos)) {
+    const todasLasOpciones = [];
+    productos.forEach(p => {
+      if (p.personalizacion && p.personalizacion.opciones) {
+        p.personalizacion.opciones.forEach(opt => {
+          todasLasOpciones.push(opt.nombre);
+        });
+      }
+    });
+    if (todasLasOpciones.length > 0) {
+      chipsHtml = `
+        <div class="prod-extras-row" style="margin-top: 6px; padding: 0 0 6px 0;">
+          ${todasLasOpciones.map(nombre => `<span class="prod-extras-tag">✓ ${escapeHtml(nombre)}</span>`).join('')}
+        </div>
+      `;
+    }
+  }
+
   return `
     <div class="pedido-card" data-id="${pedido.id}">
       <div class="card-header">
@@ -383,6 +423,7 @@ function crearCardHTML(pedido) {
       </div>
       <div class="card-cliente">👤 ${escapeHtml(pedido.cliente_nombre)}</div>
       <div class="card-productos">${escapeHtml(resumenProductos)}</div>
+      ${chipsHtml}
       <div class="card-footer">
         <span class="card-total">$${parseFloat(pedido.total || 0).toLocaleString('es-AR')}</span>
         <span class="card-pago">${pedido.metodo_pago || 'efectivo'}</span>
@@ -392,6 +433,14 @@ function crearCardHTML(pedido) {
         <button class="quick-btn quick-btn-cancel" data-id="${pedido.id}" title="Cancelar pedido">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
+        ${['nuevo', 'esperando', 'listo'].includes(pedido.estado) ? `
+          <button class="quick-btn quick-btn-desperdicio" data-id="${pedido.id}" title="Marcar como Desperdicio">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+        ` : ''}
         <button class="quick-btn quick-btn-prep" data-id="${pedido.id}" title="Pasar a En Preparación">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         </button>
@@ -474,22 +523,25 @@ function renderizarModalContenido() {
   const modal = document.getElementById('modal-pedido');
   const contenido = modal.querySelector('.modal-body');
 
-  // Si está archivado, cancelado o entregado, es SIEMPRE solo lectura
+  // Si está archivado, cancelado, entregado o desperdicio, es SIEMPRE solo lectura
   const esArchivado = !!pedido.archivado;
   const esCancelado = pedido.estado === 'cancelado';
   const esEntregado = pedido.estado === 'entregado';
-  const soloLectura = esCancelado || esArchivado || esEntregado;
+  const esDesperdicio = pedido.estado === 'desperdicio';
+  const soloLectura = esCancelado || esArchivado || esEntregado || esDesperdicio;
 
   // Ajustar visibilidad de botones según estado y modo
   const btnEditar = document.getElementById('btn-editar-pedido');
   const btnGuardar = document.getElementById('btn-guardar-pedido');
   const btnImprimir = document.getElementById('btn-imprimir');
   const btnCancelar = document.getElementById('btn-cancelar-pedido');
+  const btnDesperdicio = document.getElementById('btn-desperdicio-pedido');
   
   if (btnEditar) btnEditar.style.display = (isEdit || soloLectura || state.isCreateMode) ? 'none' : 'inline-flex';
   if (btnGuardar) btnGuardar.style.display = isEdit ? 'inline-flex' : 'none';
   if (btnImprimir) btnImprimir.style.display = (isEdit || soloLectura || state.isCreateMode) ? 'none' : 'inline-flex';
   if (btnCancelar) btnCancelar.style.display = (soloLectura || state.isCreateMode) ? 'none' : 'inline-flex';
+  if (btnDesperdicio) btnDesperdicio.style.display = (soloLectura || state.isCreateMode) ? 'none' : 'inline-flex';
 
   const modalHeader = modal.querySelector('.modal-header h2');
   if (state.isCreateMode) {
@@ -514,9 +566,10 @@ function renderizarModalContenido() {
         ? `<span class="lista-estado estado-${pedido.estado}">${ESTADOS[pedido.estado]?.emoji || ''} ${ESTADOS[pedido.estado]?.label || pedido.estado}</span>`
         : `<select id="modal-estado" class="estado-select">
             <option value="nuevo"     ${pedido.estado === 'nuevo' ? 'selected' : ''}>🆕 Nuevo</option>
-            <option value="esperando" ${pedido.estado === 'esperando' ? 'selected' : ''}>⏳ En Preparacion</option>
+            <option value="esperando" ${pedido.estado === 'esperando' || pedido.estado === 'en_preparacion' ? 'selected' : ''}>⏳ En Preparacion</option>
             <option value="listo"     ${pedido.estado === 'listo' ? 'selected' : ''}>✅ Listo</option>
             <option value="entregado" ${pedido.estado === 'entregado' ? 'selected' : ''}>📦 Entregado</option>
+            <option value="desperdicio" ${pedido.estado === 'desperdicio' ? 'selected' : ''} style="color:#1a1a1a;font-weight:600;">🗑️ Desperdicio</option>
           </select>`
       }
         </div>
@@ -553,6 +606,12 @@ function renderizarModalContenido() {
             <span class="prod-precio">$${parseFloat((p.precio || p.price || 0) * (p.cantidad || p.quantity || 1)).toLocaleString('es-AR')}</span>
           </div>
           ${p.modificadores ? `<div class="prod-extras">${Array.isArray(p.modificadores) ? p.modificadores.join(', ') : p.modificadores}</div>` : ''}
+          ${p.personalizacion && p.personalizacion.opciones && p.personalizacion.opciones.length > 0
+            ? `<div class="prod-extras-row" style="padding-left: 38px; margin-top: 2px;">
+                ${p.personalizacion.opciones.map(opt => `<span class="prod-extras-tag">✓ ${escapeHtml(opt.nombre)}</span>`).join('')}
+               </div>`
+            : ''
+          }
         `).join('')}
       </div>
 
@@ -569,7 +628,7 @@ function renderizarModalContenido() {
       ` : ''}
 
       <div class="modal-fecha">
-        Recibido: ${new Date(pedido.created_at).toLocaleString('es-AR')}
+        Recibido: ${parseSQLiteDate(pedido.created_at).toLocaleString('es-AR')}
       </div>
     `;
 
@@ -692,12 +751,25 @@ function generarFilaProducto(p, idx) {
     nameInput = `<input type="text" class="edit-input prod-edit-nombre" value="${escapeHtml(p.nombre || p.name || '')}" placeholder="Nombre del producto">`;
   }
 
+  const persAttr = p.personalizacion ? `data-personalizacion="${escapeHtml(JSON.stringify(p.personalizacion))}"` : '';
+
+  let chipsHtml = '';
+  if (p.personalizacion && p.personalizacion.opciones && p.personalizacion.opciones.length > 0) {
+    chipsHtml = `
+      <div class="prod-extras-row" style="grid-column: 1 / -1; margin-left: 68px; display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0 0 0;">
+        ${p.personalizacion.opciones.map(opt => `<span class="prod-extras-tag">✓ ${escapeHtml(opt.nombre)}</span>`).join('')}
+      </div>
+    `;
+  }
+
   return `
-    <div class="edit-producto-row" data-idx="${idx}">
-      <input type="number" class="edit-input prod-edit-cant" value="${p.cantidad || p.quantity || 1}" min="1" placeholder="Cant">
+    <div class="edit-producto-row" data-idx="${idx}" ${persAttr}>
+      <input type="number" class="edit-input prod-edit-cant" value="${p.cantidad || p.quantity || 1}" min="1" placeholder="Cant" style="width: 70px;">
       ${nameInput}
-      <input type="number" class="edit-input prod-edit-precio" value="${p.precio || p.price || 0}" min="0" step="0.01" placeholder="Precio U.">
-      <button class="btn-icon btn-remove-prod" title="Quitar">✕</button>
+      <input type="number" class="edit-input prod-edit-precio" value="${p.precio || p.price || 0}" min="0" step="0.01" placeholder="Precio U." style="width: 100px;">
+      <button class="btn-icon btn-personalizar-prod" title="Personalizar Combo" style="display:none; font-size: 14px; margin-left: 4px;">⚙️</button>
+      <button class="btn-icon btn-remove-prod" title="Quitar" style="margin-left: 4px;">✕</button>
+      ${chipsHtml}
     </div>
   `;
 }
@@ -714,17 +786,216 @@ function bindProductEvents() {
     input.oninput = recalcularTotal;
   });
 
+  // Mostrar el botón ⚙️ en las filas que ya cargan un combo
+  document.querySelectorAll('.edit-producto-row').forEach(async row => {
+    const select = row.querySelector('.prod-edit-select');
+    const btnPers = row.querySelector('.btn-personalizar-prod');
+    if (select && select.value && btnPers) {
+      const productoId = parseInt(select.value);
+      const res = await window.electronAPI.getDetallePersonalizacion(productoId);
+      if (res.ok && res.data && res.data.grupos && res.data.grupos.length > 0) {
+        btnPers.style.display = 'inline-block';
+      } else {
+        btnPers.style.display = 'none';
+      }
+    }
+  });
+
+  // Cambios de selección de producto
   document.querySelectorAll('.prod-edit-select').forEach(select => {
-    select.onchange = (e) => {
+    select.onchange = async (e) => {
       const option = e.target.options[e.target.selectedIndex];
       const row = e.target.closest('.edit-producto-row');
       const inputPrecio = row.querySelector('.prod-edit-precio');
-      if (option && option.dataset.precio) {
-        inputPrecio.value = option.dataset.precio;
+      const btnPers = row.querySelector('.btn-personalizar-prod');
+      
+      const productoId = parseInt(select.value);
+      if (productoId) {
+        if (option && option.dataset.precio) {
+          inputPrecio.value = option.dataset.precio;
+        }
+        
+        // Consultar si es combo (tiene grupos de opciones)
+        const res = await window.electronAPI.getDetallePersonalizacion(productoId);
+        if (res.ok && res.data && res.data.grupos && res.data.grupos.length > 0) {
+          if (btnPers) btnPers.style.display = 'inline-block';
+          // Abrir popup automáticamente al elegirlo por primera vez
+          abrirModalPersonalizacion(row, res.data);
+        } else {
+          if (btnPers) btnPers.style.display = 'none';
+          row.removeAttribute('data-personalizacion');
+          row.querySelector('.prod-extras-row')?.remove();
+        }
+      } else {
+        if (btnPers) btnPers.style.display = 'none';
+        row.removeAttribute('data-personalizacion');
+        row.querySelector('.prod-extras-row')?.remove();
       }
       recalcularTotal();
     };
   });
+
+  // Click en el botón de personalización (⚙️)
+  document.querySelectorAll('.btn-personalizar-prod').forEach(btn => {
+    btn.onclick = async (e) => {
+      const row = e.target.closest('.edit-producto-row');
+      const select = row.querySelector('.prod-edit-select');
+      const productoId = parseInt(select.value);
+      if (productoId) {
+        const res = await window.electronAPI.getDetallePersonalizacion(productoId);
+        if (res.ok && res.data) {
+          abrirModalPersonalizacion(row, res.data);
+        }
+      }
+    };
+  });
+}
+
+let tempPersRow = null;
+
+async function abrirModalPersonalizacion(row, cachedData = null) {
+  const select = row.querySelector('.prod-edit-select');
+  const productoId = parseInt(select.value);
+  if (!productoId) return;
+
+  tempPersRow = row;
+
+  let productDetails = cachedData;
+  if (!productDetails) {
+    const res = await window.electronAPI.getDetallePersonalizacion(productoId);
+    if (res.ok && res.data) {
+      productDetails = res.data;
+    }
+  }
+
+  if (!productDetails || !productDetails.grupos || productDetails.grupos.length === 0) return;
+
+  // 1. Configurar encabezados
+  document.getElementById('pers-producto-nombre').textContent = productDetails.nombre;
+  const basePrice = parseFloat(productDetails.precio) || 0;
+  document.getElementById('pers-producto-descripcion').textContent = `Precio base: $${basePrice.toLocaleString('es-AR')}`;
+
+  // 2. Obtener IDs seleccionados previamente en esta fila
+  const selectedIds = [];
+  if (row.dataset.personalizacion) {
+    try {
+      const pers = JSON.parse(row.dataset.personalizacion);
+      if (pers && pers.opciones) {
+        pers.opciones.forEach(opt => selectedIds.push(opt.id));
+      }
+    } catch (e) {
+      console.error("Error al parsear personalización guardada:", e);
+    }
+  }
+
+  // 3. Renderizar los grupos de opciones
+  const container = document.getElementById('pers-grupos-container');
+  container.innerHTML = productDetails.grupos.map(g => {
+    const isRequired = g.min_seleccion > 0;
+    const badgeText = isRequired ? 'Obligatorio' : 'Opcional';
+    const isSingleSelect = g.max_seleccion === 1;
+
+    return `
+      <div class="pers-grupo-box" data-id="${g.id}" data-min="${g.min_seleccion}" data-max="${g.max_seleccion}" data-nombre="${escapeHtml(g.nombre)}">
+        <div class="pers-grupo-header">
+          <h3>${escapeHtml(g.nombre)}</h3>
+          <span class="pers-grupo-badge">${badgeText}</span>
+        </div>
+        <div class="pers-opciones-list">
+          ${g.opciones.map(o => {
+            const isSelected = selectedIds.includes(o.id);
+            const inputType = isSingleSelect ? 'radio' : 'checkbox';
+            const inputName = isSingleSelect ? `pers_grupo_${g.id}` : `pers_opc_${o.id}`;
+
+            return `
+              <div class="pers-opcion-item ${isSelected ? 'selected' : ''}" data-id="${o.id}" data-precio-extra="${o.precio_extra}" data-nombre="${escapeHtml(o.nombre)}">
+                <input type="${inputType}" name="${inputName}" value="${o.id}" ${isSelected ? 'checked' : ''} style="cursor:pointer;">
+                ${!isSingleSelect ? '<span class="pers-opcion-check">✓</span>' : ''}
+                <span class="pers-opcion-nombre">${escapeHtml(o.nombre)}</span>
+                <span class="pers-opcion-precio ${o.precio_extra === 0 ? 'zero' : ''}">
+                  ${o.precio_extra > 0 ? '+$' + o.precio_extra.toLocaleString('es-AR') : 'Sin cargo'}
+                </span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // 4. Agregar listeners de click en las opciones
+  container.querySelectorAll('.pers-opcion-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      // Evitar que el clic en el propio input dispare doble evento
+      if (e.target.tagName === 'INPUT') return;
+      
+      const input = item.querySelector('input');
+      const box = item.closest('.pers-grupo-box');
+      const isSingleSelect = parseInt(box.dataset.max) === 1;
+
+      if (isSingleSelect) {
+        // Desmarcar todos los demás en el grupo
+        box.querySelectorAll('.pers-opcion-item').forEach(other => {
+          other.classList.remove('selected');
+          other.querySelector('input').checked = false;
+        });
+        item.classList.add('selected');
+        input.checked = true;
+      } else {
+        // Toggle para selección múltiple
+        const isChecked = !input.checked;
+        input.checked = isChecked;
+        item.classList.toggle('selected', isChecked);
+      }
+
+      actualizarTotalPersonalizacion(basePrice);
+    });
+
+    // Event listener en caso de hacer click directo en el input
+    item.querySelector('input').addEventListener('change', () => {
+      const box = item.closest('.pers-grupo-box');
+      const isSingleSelect = parseInt(box.dataset.max) === 1;
+
+      if (isSingleSelect) {
+        box.querySelectorAll('.pers-opcion-item').forEach(other => {
+          other.classList.toggle('selected', other.querySelector('input').checked);
+        });
+      } else {
+        item.classList.toggle('selected', item.querySelector('input').checked);
+      }
+
+      actualizarTotalPersonalizacion(basePrice);
+    });
+  });
+
+  // 5. Configurar selector de cantidad
+  const cantInput = row.querySelector('.prod-edit-cant');
+  const qtyVal = document.getElementById('pers-qty-value');
+  qtyVal.textContent = cantInput ? (cantInput.value || 1) : 1;
+
+  // 6. Configurar total
+  actualizarTotalPersonalizacion(basePrice);
+
+  // 7. Mostrar modal
+  document.getElementById('modal-personalizacion').classList.add('visible');
+}
+
+function actualizarTotalPersonalizacion(basePrice) {
+  let extra = 0;
+  document.querySelectorAll('.pers-opcion-item.selected').forEach(item => {
+    extra += parseFloat(item.dataset.precioExtra) || 0;
+  });
+  
+  const cant = parseInt(document.getElementById('pers-qty-value').textContent) || 1;
+  const unitPrice = basePrice + extra;
+  const total = unitPrice * cant;
+
+  document.getElementById('pers-total-display').textContent = `$ ${total.toLocaleString('es-AR')}`;
+  
+  // Guardar datos calculados en el dataset del modal
+  const modal = document.getElementById('modal-personalizacion');
+  modal.dataset.unitPrice = unitPrice;
+  modal.dataset.basePrice = basePrice;
 }
 
 async function recalcularTotal() {
@@ -802,11 +1073,18 @@ async function guardarPedidoEditado() {
       nombre = inputNombre ? inputNombre.value : '';
     }
 
+    const personalizacionStr = row.dataset.personalizacion;
+    let personalizacion = null;
+    if (personalizacionStr) {
+      try { personalizacion = JSON.parse(personalizacionStr); } catch(e) {}
+    }
+
     productos.push({
       producto_id,
       nombre: nombre,
       cantidad: parseFloat(row.querySelector('.prod-edit-cant').value) || 1,
-      precio: parseFloat(row.querySelector('.prod-edit-precio').value) || 0
+      precio: parseFloat(row.querySelector('.prod-edit-precio').value) || 0,
+      personalizacion: personalizacion
     });
   });
 
@@ -873,7 +1151,7 @@ async function imprimirPedido() {
     mostrarToast('✅ Ticket impreso correctamente', 'success');
     // Auto-avanzar estado si está en "nuevo"
     if (pedido.estado === 'nuevo') {
-      await cambiarEstado(pedido.id, 'en_preparacion');
+      await cambiarEstado(pedido.id, 'esperando');
     }
   } else {
     mostrarToast('❌ Error al imprimir: ' + result.error, 'error');
@@ -936,11 +1214,31 @@ async function cancelarPedido() {
   }
 }
 
+async function desperdicioPedido() {
+  const pedido = state.pedidoSeleccionado;
+  if (!pedido || state.isCreateMode) return;
+
+  const confirmar = confirm(`¿Marcar el pedido ${pedido.numero_pedido || '#' + pedido.id} de ${pedido.cliente_nombre} como Desperdicio?`);
+  if (!confirmar) return;
+
+  try {
+    await cambiarEstado(pedido.id, 'desperdicio');
+    cerrarModal();
+    mostrarToast('🗑️ Pedido marcado como desperdicio', 'warning');
+  } catch (err) {
+    mostrarToast('❌ Error inesperado al marcar como desperdicio', 'error');
+    console.error(err);
+    cerrarModal();
+    renderizarVista();
+  }
+}
+
 // ─── Event Listeners globales ──────────────────────────────────────────────
 function setupEventListeners() {
   // Botones del modal
   document.getElementById('btn-imprimir')?.addEventListener('click', imprimirPedido);
   document.getElementById('btn-cancelar-pedido')?.addEventListener('click', cancelarPedido);
+  document.getElementById('btn-desperdicio-pedido')?.addEventListener('click', desperdicioPedido);
   document.getElementById('btn-cerrar-modal')?.addEventListener('click', cerrarModal);
   document.getElementById('btn-volver')?.addEventListener('click', cerrarModal);
 
@@ -1031,6 +1329,99 @@ function setupEventListeners() {
   });
 
   setupInventarioListeners();
+
+  // Personalización de combos event listeners
+  const qtyVal = document.getElementById('pers-qty-value');
+  document.getElementById('pers-qty-minus')?.addEventListener('click', () => {
+    let cant = parseInt(qtyVal.textContent) || 1;
+    if (cant > 1) {
+      qtyVal.textContent = cant - 1;
+      const basePrice = parseFloat(document.getElementById('modal-personalizacion').dataset.basePrice) || 0;
+      actualizarTotalPersonalizacion(basePrice);
+    }
+  });
+
+  document.getElementById('pers-qty-plus')?.addEventListener('click', () => {
+    let cant = parseInt(qtyVal.textContent) || 1;
+    qtyVal.textContent = cant + 1;
+    const basePrice = parseFloat(document.getElementById('modal-personalizacion').dataset.basePrice) || 0;
+    actualizarTotalPersonalizacion(basePrice);
+  });
+
+  document.getElementById('btn-cerrar-personalizacion')?.addEventListener('click', () => {
+    document.getElementById('modal-personalizacion').classList.remove('visible');
+  });
+
+  document.getElementById('modal-personalizacion')?.addEventListener('click', (e) => {
+    if (e.target.id === 'modal-personalizacion') {
+      document.getElementById('modal-personalizacion').classList.remove('visible');
+    }
+  });
+
+  document.getElementById('btn-guardar-personalizacion')?.addEventListener('click', () => {
+    if (!tempPersRow) return;
+
+    // 1. Validar grupos obligatorios
+    let hasError = false;
+    document.querySelectorAll('.pers-grupo-box').forEach(box => {
+      const min = parseInt(box.dataset.min) || 0;
+      const selected = box.querySelectorAll('.pers-opcion-item.selected').length;
+      
+      if (min > 0 && selected < min) {
+        box.classList.add('required-missing');
+        hasError = true;
+      } else {
+        box.classList.remove('required-missing');
+      }
+    });
+
+    if (hasError) {
+      return mostrarToast('Por favor, selecciona las opciones obligatorias marcadas en rojo.', 'error');
+    }
+
+    // 2. Recopilar opciones seleccionadas
+    const opciones = [];
+    document.querySelectorAll('.pers-opcion-item.selected').forEach(item => {
+      opciones.push({
+        id: parseInt(item.dataset.id),
+        nombre: item.dataset.nombre,
+        precio_extra: parseFloat(item.dataset.precioExtra) || 0
+      });
+    });
+
+    const personalizacion = { opciones };
+    tempPersRow.dataset.personalizacion = JSON.stringify(personalizacion);
+
+    // Renderizar/actualizar los chips debajo de la fila en tiempo real
+    let extrasRow = tempPersRow.querySelector('.prod-extras-row');
+    if (opciones.length > 0) {
+      if (!extrasRow) {
+        extrasRow = document.createElement('div');
+        extrasRow.className = 'prod-extras-row';
+        extrasRow.style.cssText = 'grid-column: 1 / -1; margin-left: 68px; display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0 0 0;';
+        tempPersRow.appendChild(extrasRow);
+      }
+      extrasRow.innerHTML = opciones.map(opt => `<span class="prod-extras-tag">✓ ${escapeHtml(opt.nombre)}</span>`).join('');
+    } else if (extrasRow) {
+      extrasRow.remove();
+    }
+
+    // 3. Actualizar la fila del producto
+    const modal = document.getElementById('modal-personalizacion');
+    const unitPrice = parseFloat(modal.dataset.unitPrice) || 0;
+    const cant = parseInt(document.getElementById('pers-qty-value').textContent) || 1;
+
+    const cantInput = tempPersRow.querySelector('.prod-edit-cant');
+    const precioInput = tempPersRow.querySelector('.prod-edit-precio');
+
+    if (cantInput) cantInput.value = cant;
+    if (precioInput) precioInput.value = unitPrice;
+
+    // 4. Recalcular total y cerrar modal
+    recalcularTotal();
+    modal.classList.remove('visible');
+    mostrarToast('✅ Combo personalizado y añadido', 'success');
+  });
 }
 
 // ─── Notificaciones y UI helpers ───────────────────────────────────────────
@@ -1068,7 +1459,7 @@ function crearToastContainer() {
 function actualizarContadores() {
   const contadores = {
     nuevo: state.pedidos.filter(p => p.estado === 'nuevo').length,
-    en_preparacion: state.pedidos.filter(p => p.estado === 'en_preparacion').length,
+    en_preparacion: state.pedidos.filter(p => p.estado === 'en_preparacion' || p.estado === 'esperando').length,
     listo: state.pedidos.filter(p => p.estado === 'listo').length,
     entregado: state.pedidos.filter(p => p.estado === 'entregado').length,
   };
@@ -1091,9 +1482,44 @@ function mostrarError(msg) {
   if (el) { el.textContent = msg; el.style.display = 'block'; }
 }
 
+function parseSQLiteDate(dateStr) {
+  if (!dateStr) return new Date();
+  if (dateStr instanceof Date) return dateStr;
+  
+  // Si ya tiene una T o es ISO, parsear directo
+  if (dateStr.includes('T')) {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) return d;
+  }
+  
+  // Reemplazar espacio por T para asegurar compatibilidad total en todas las plataformas
+  const isoStr = dateStr.replace(' ', 'T');
+  const d = new Date(isoStr);
+  if (!isNaN(d.getTime())) return d;
+  
+  // Si aún falla, intentar parsear por partes
+  try {
+    const parts = dateStr.split(/[- :]/);
+    if (parts.length >= 3) {
+      const year = parseInt(parts[0]);
+      const month = parseInt(parts[1]) - 1;
+      const day = parseInt(parts[2]);
+      const hour = parseInt(parts[3]) || 0;
+      const minute = parseInt(parts[4]) || 0;
+      const second = parseInt(parts[5]) || 0;
+      const parsedD = new Date(year, month, day, hour, minute, second);
+      if (!isNaN(parsedD.getTime())) return parsedD;
+    }
+  } catch (e) {
+    console.error("Error parsing date:", dateStr, e);
+  }
+  
+  return new Date(); // Fallback a fecha actual
+}
+
 function tiempoRelativo(fechaStr) {
   if (!fechaStr) return '';
-  const fecha = new Date(fechaStr);
+  const fecha = parseSQLiteDate(fechaStr);
   const diff = Math.floor((Date.now() - fecha.getTime()) / 1000);
   if (diff < 60) return 'ahora';
   if (diff < 3600) return `${Math.floor(diff / 60)}min`;
@@ -1147,13 +1573,23 @@ function setupInventarioListeners() {
     document.getElementById('modal-insumo').classList.add('visible');
   });
 
-  document.getElementById('btn-nuevo-producto')?.addEventListener('click', () => {
+  document.getElementById('btn-nuevo-producto')?.addEventListener('click', async () => {
     document.getElementById('producto-id').value = '';
     document.getElementById('producto-nombre').value = '';
     document.getElementById('producto-categoria').value = '';
     document.getElementById('producto-precio').value = '0';
     document.getElementById('producto-stock').value = '0';
+    
+    // Por defecto, maneja stock (así que "NO Maneja Stock" está desmarcado)
+    const checkbox = document.getElementById('producto-controla-stock');
+    if (checkbox) checkbox.checked = false;
+    actualizarVisibilidadStock();
+
     document.getElementById('modal-producto-title').textContent = 'Nuevo Producto';
+    
+    // Cargar combos
+    await cargarCombosEnProducto(null);
+
     document.getElementById('modal-producto').classList.add('visible');
   });
 
@@ -1172,6 +1608,8 @@ function setupInventarioListeners() {
   document.getElementById('btn-guardar-producto')?.addEventListener('click', guardarProducto);
   document.getElementById('btn-guardar-categoria')?.addEventListener('click', guardarCategoria);
   document.getElementById('btn-guardar-receta')?.addEventListener('click', guardarReceta);
+  
+  document.getElementById('producto-controla-stock')?.addEventListener('change', actualizarVisibilidadStock);
   
   document.getElementById('btn-add-insumo-receta')?.addEventListener('click', () => agregarFilaReceta());
   
@@ -1241,6 +1679,43 @@ function setupInventarioListeners() {
 
   setInterval(checkAlerts, 10000);
   checkAlerts();
+
+  // ── COMBOS listeners ──
+  document.getElementById('btn-nuevo-grupo')?.addEventListener('click', () => abrirModalGrupo());
+
+  document.getElementById('lista-grupos')?.addEventListener('click', async (e) => {
+    const btnEditar = e.target.closest('.btn-editar-grupo');
+    const btnEliminar = e.target.closest('.btn-eliminar-grupo');
+    const item = e.target.closest('.grupo-item');
+    if (btnEditar) {
+      abrirModalGrupo({
+        id: parseInt(btnEditar.dataset.id),
+        nombre: btnEditar.dataset.nombre,
+        min: parseInt(btnEditar.dataset.min),
+        max: parseInt(btnEditar.dataset.max)
+      });
+    } else if (btnEliminar) {
+      await eliminarGrupo(parseInt(btnEliminar.dataset.id));
+    } else if (item) {
+      await renderizarOpciones(parseInt(item.dataset.id));
+    }
+  });
+
+  document.getElementById('btn-guardar-grupo')?.addEventListener('click', guardarGrupo);
+  document.getElementById('btn-cerrar-modal-grupo')?.addEventListener('click', () =>
+    document.getElementById('modal-grupo').classList.remove('visible')
+  );
+  document.getElementById('modal-grupo')?.addEventListener('click', (e) => {
+    if (e.target.id === 'modal-grupo') document.getElementById('modal-grupo').classList.remove('visible');
+  });
+
+  document.getElementById('btn-guardar-opcion')?.addEventListener('click', guardarOpcion);
+  document.getElementById('btn-cerrar-modal-opcion')?.addEventListener('click', () =>
+    document.getElementById('modal-opcion').classList.remove('visible')
+  );
+  document.getElementById('modal-opcion')?.addEventListener('click', (e) => {
+    if (e.target.id === 'modal-opcion') document.getElementById('modal-opcion').classList.remove('visible');
+  });
 }
 
 async function checkAlerts() {
@@ -1339,7 +1814,185 @@ async function renderizarInventario() {
       '  <button class="btn btn-secondary btn-small btn-eliminar-categoria" data-id="' + c.id + '" style="color:var(--danger)">🗑️</button></div></div>'
     ).join('');
     document.getElementById('lista-categorias').innerHTML = html || '<div class="empty-state">No hay categorías</div>';
+  } else if (inventarioState.tabActual === 'combos') {
+    await renderizarGrupos();
   }
+}
+
+// ─── COMBOS: Grupos y Opciones ────────────────────────────────────────────────
+let combosState = { grupoSeleccionado: null };
+
+async function renderizarGrupos() {
+  const res = await window.electronAPI.getGrupos();
+  const lista = document.getElementById('lista-grupos');
+  if (!res.ok || !lista) return;
+
+  const grupos = res.data;
+  if (grupos.length === 0) {
+    lista.innerHTML = '<div class="empty-state">No hay grupos creados</div>';
+    return;
+  }
+
+  lista.innerHTML = grupos.map(g => `
+    <div class="grupo-item ${combosState.grupoSeleccionado === g.id ? 'grupo-selected' : ''}" data-id="${g.id}">
+      <div class="grupo-item-info">
+        <strong>${escapeHtml(g.nombre)}</strong>
+        <span class="grupo-opciones-count">${g.num_opciones} opcion${g.num_opciones !== 1 ? 'es' : ''}</span>
+      </div>
+      <div class="grupo-item-actions">
+        <button class="btn btn-secondary btn-small btn-editar-grupo" data-id="${g.id}" data-nombre="${escapeHtml(g.nombre)}" data-min="${g.min_seleccion}" data-max="${g.max_seleccion}">✏️</button>
+        <button class="btn btn-secondary btn-small btn-eliminar-grupo" data-id="${g.id}" style="color:var(--danger)">🗑️</button>
+      </div>
+    </div>
+  `).join('');
+
+  if (combosState.grupoSeleccionado) {
+    await renderizarOpciones(combosState.grupoSeleccionado);
+  }
+}
+
+async function renderizarOpciones(grupoId) {
+  combosState.grupoSeleccionado = grupoId;
+  const panel = document.getElementById('panel-grupo-detalle');
+  if (!panel) return;
+
+  // Actualizar clase seleccionada en la lista
+  document.querySelectorAll('.grupo-item').forEach(el => {
+    el.classList.toggle('grupo-selected', parseInt(el.dataset.id) === grupoId);
+  });
+
+  const resGrupo = await window.electronAPI.getGrupos();
+  const grupo = resGrupo.ok ? resGrupo.data.find(g => g.id === grupoId) : null;
+  const resOpc = await window.electronAPI.getOpcionesByGrupo(grupoId);
+  const opciones = resOpc.ok ? resOpc.data : [];
+
+  panel.className = 'combos-panel-content';
+  panel.innerHTML = `
+    <div class="combos-panel-header">
+      <h3>${grupo ? escapeHtml(grupo.nombre) : 'Grupo'}</h3>
+      <div class="combos-panel-meta">
+        <span>Mín: ${grupo?.min_seleccion ?? 1}</span>
+        <span>Máx: ${grupo?.max_seleccion ?? 1}</span>
+      </div>
+    </div>
+    <div class="opciones-lista" id="opciones-lista">
+      ${opciones.length === 0 ? '<div class="empty-state">No hay opciones en este grupo</div>' : opciones.map(o => `
+        <div class="opcion-item" data-id="${o.id}">
+          <span class="opcion-nombre">${escapeHtml(o.nombre)}</span>
+          <span class="opcion-precio">${o.precio_extra > 0 ? '+$' + o.precio_extra : 'Sin cargo'}</span>
+          <div>
+            <button class="btn btn-secondary btn-small btn-editar-opcion" data-id="${o.id}" data-nombre="${escapeHtml(o.nombre)}" data-precio="${o.precio_extra}">✏️</button>
+            <button class="btn btn-secondary btn-small btn-eliminar-opcion" data-id="${o.id}" style="color:var(--danger)">🗑️</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    <button class="btn btn-primary" id="btn-nueva-opcion" data-grupo="${grupoId}">+ Nueva Opción</button>
+  `;
+
+  // Listener para nueva opción
+  document.getElementById('btn-nueva-opcion')?.addEventListener('click', () => {
+    abrirModalOpcion(null, grupoId);
+  });
+
+  document.getElementById('opciones-lista')?.addEventListener('click', (e) => {
+    const btnEditar = e.target.closest('.btn-editar-opcion');
+    const btnEliminar = e.target.closest('.btn-eliminar-opcion');
+    if (btnEditar) {
+      abrirModalOpcion({
+        id: parseInt(btnEditar.dataset.id),
+        nombre: btnEditar.dataset.nombre,
+        precio_extra: parseFloat(btnEditar.dataset.precio)
+      }, grupoId);
+    }
+    if (btnEliminar) eliminarOpcion(parseInt(btnEliminar.dataset.id), grupoId);
+  });
+}
+
+function abrirModalGrupo(data = null) {
+  document.getElementById('grupo-id').value = data?.id ?? '';
+  document.getElementById('grupo-nombre').value = data?.nombre ?? '';
+  document.getElementById('grupo-min').value = data?.min ?? 1;
+  document.getElementById('grupo-max').value = data?.max ?? 1;
+  document.getElementById('modal-grupo-title').textContent = data ? 'Editar Grupo' : 'Nuevo Grupo';
+  document.getElementById('modal-grupo').classList.add('visible');
+}
+
+async function guardarGrupo() {
+  const nombre = document.getElementById('grupo-nombre').value.trim();
+  if (!nombre) return mostrarToast('El nombre del grupo es obligatorio', 'error');
+  const idRaw = document.getElementById('grupo-id').value;
+  const min_seleccion = parseInt(document.getElementById('grupo-min').value) || 1;
+  const max_seleccion = parseInt(document.getElementById('grupo-max').value) || 1;
+  const data = { nombre, min_seleccion, max_seleccion };
+  let res;
+  if (idRaw) {
+    res = await window.electronAPI.updateGrupo({ id: parseInt(idRaw), ...data });
+  } else {
+    res = await window.electronAPI.createGrupo(data);
+  }
+  if (res.ok) {
+    document.getElementById('modal-grupo').classList.remove('visible');
+    await renderizarGrupos();
+    mostrarToast('Grupo guardado', 'success');
+  } else {
+    mostrarToast('Error: ' + res.error, 'error');
+  }
+}
+
+async function eliminarGrupo(id) {
+  if (!confirm('¿Eliminar este grupo y todas sus opciones?')) return;
+  const res = await window.electronAPI.deleteGrupo(id);
+  if (res.ok) {
+    if (combosState.grupoSeleccionado === id) {
+      combosState.grupoSeleccionado = null;
+      const panel = document.getElementById('panel-grupo-detalle');
+      if (panel) {
+        panel.className = 'combos-empty-state';
+        panel.innerHTML = '<span>👈</span><p>Seleccioná un grupo para ver y gestionar sus opciones</p>';
+      }
+    }
+    await renderizarGrupos();
+  } else {
+    mostrarToast('Error: ' + res.error, 'error');
+  }
+}
+
+function abrirModalOpcion(data = null, grupoId) {
+  document.getElementById('opcion-id').value = data?.id ?? '';
+  document.getElementById('opcion-grupo-id').value = grupoId;
+  document.getElementById('opcion-nombre').value = data?.nombre ?? '';
+  document.getElementById('opcion-precio').value = data?.precio_extra ?? 0;
+  document.getElementById('modal-opcion-title').textContent = data ? 'Editar Opción' : 'Nueva Opción';
+  document.getElementById('modal-opcion').classList.add('visible');
+}
+
+async function guardarOpcion() {
+  const nombre = document.getElementById('opcion-nombre').value.trim();
+  if (!nombre) return mostrarToast('El nombre de la opción es obligatorio', 'error');
+  const idRaw = document.getElementById('opcion-id').value;
+  const grupo_id = parseInt(document.getElementById('opcion-grupo-id').value);
+  const precio_extra = parseFloat(document.getElementById('opcion-precio').value) || 0;
+  let res;
+  if (idRaw) {
+    res = await window.electronAPI.updateOpcion({ id: parseInt(idRaw), nombre, precio_extra });
+  } else {
+    res = await window.electronAPI.createOpcion({ grupo_id, nombre, precio_extra });
+  }
+  if (res.ok) {
+    document.getElementById('modal-opcion').classList.remove('visible');
+    await renderizarOpciones(grupo_id);
+    mostrarToast('Opción guardada', 'success');
+  } else {
+    mostrarToast('Error: ' + res.error, 'error');
+  }
+}
+
+async function eliminarOpcion(id, grupoId) {
+  if (!confirm('¿Eliminar esta opción?')) return;
+  const res = await window.electronAPI.deleteOpcion(id);
+  if (res.ok) await renderizarOpciones(grupoId);
+  else mostrarToast('Error: ' + res.error, 'error');
 }
 
 // RECETAS LOGIC
@@ -1454,7 +2107,70 @@ async function guardarInsumo() {
 }
 async function eliminarInsumo(id) { if (confirm("¿Eliminar insumo?")) { await window.electronAPI.deleteInsumo(id); renderizarInventario(); } }
 
-function editarProducto(id) {
+function actualizarVisibilidadStock() {
+  const checkbox = document.getElementById('producto-controla-stock');
+  const wrapper = document.getElementById('stock-actual-wrapper');
+  if (checkbox && wrapper) {
+    if (checkbox.checked) {
+      wrapper.style.display = 'none';
+    } else {
+      wrapper.style.display = 'block';
+    }
+  }
+}
+
+async function cargarCombosEnProducto(productoId) {
+  const container = document.getElementById('producto-grupos-checkboxes');
+  if (!container) return;
+  container.innerHTML = '<p style="color:var(--text2)">Cargando grupos...</p>';
+
+  // 1. Obtener todos los grupos
+  const resGrupos = await window.electronAPI.getGrupos();
+  if (!resGrupos.ok) {
+    container.innerHTML = '<p style="color:var(--danger)">Error al cargar grupos</p>';
+    return;
+  }
+  const grupos = resGrupos.data || [];
+
+  if (grupos.length === 0) {
+    container.innerHTML = '<p style="color:var(--text3); font-size:12px;">No hay grupos de opciones creados en la pestaña "Combos"</p>';
+    return;
+  }
+
+  // 2. Obtener grupos vinculados al producto actual
+  let vinculados = [];
+  if (productoId) {
+    const resVinculados = await window.electronAPI.getProductoGrupos(productoId);
+    if (resVinculados.ok) {
+      vinculados = resVinculados.data || [];
+    }
+  }
+
+  // 3. Renderizar
+  container.innerHTML = grupos.map(g => {
+    const isChecked = vinculados.includes(g.id);
+    const badgeText = g.min_seleccion > 0 ? 'Obligatorio' : 'Opcional';
+    const badgeClass = g.min_seleccion > 0 ? 'grupo-badge-oblig' : 'grupo-badge-opc';
+
+    return `
+      <label class="grupo-check-item ${isChecked ? 'checked' : ''}" data-id="${g.id}">
+        <input type="checkbox" class="combo-grupo-checkbox" value="${g.id}" ${isChecked ? 'checked' : ''}>
+        <span class="grupo-check-nombre">${escapeHtml(g.nombre)}</span>
+        <span class="grupo-check-badge ${badgeClass}">${badgeText}</span>
+      </label>
+    `;
+  }).join('');
+
+  // 4. Agregar event listeners para actualizar la clase "checked" al hacer click
+  container.querySelectorAll('.grupo-check-item').forEach(item => {
+    const checkbox = item.querySelector('.combo-grupo-checkbox');
+    checkbox.addEventListener('change', () => {
+      item.classList.toggle('checked', checkbox.checked);
+    });
+  });
+}
+
+async function editarProducto(id) {
   const p = inventarioState.productos.find(x => x.id === id);
   if (!p) return;
   document.getElementById('producto-id').value = p.id;
@@ -1462,22 +2178,57 @@ function editarProducto(id) {
   document.getElementById('producto-categoria').value = p.categoria_id || '';
   document.getElementById('producto-precio').value = p.precio;
   document.getElementById('producto-stock').value = p.stock_actual;
+
+  // Si p.controla_stock === 0, entonces "NO Maneja Stock" está checked
+  const checkbox = document.getElementById('producto-controla-stock');
+  if (checkbox) {
+    checkbox.checked = (p.controla_stock === 0);
+  }
+  actualizarVisibilidadStock();
+
+  // Cargar combos seleccionados para este producto
+  await cargarCombosEnProducto(p.id);
+
   document.getElementById('modal-producto').classList.add("visible");
 }
+
 async function guardarProducto() {
   const nombre = document.getElementById('producto-nombre').value.trim();
   if (!nombre) return mostrarToast('El nombre del producto es obligatorio', 'error');
+  
   const idRaw = document.getElementById('producto-id').value;
+  const controlaStockCheckbox = document.getElementById('producto-controla-stock');
+  
+  // Checked ("NO maneja stock") -> controla_stock = 0
+  // Unchecked ("Maneja stock") -> controla_stock = 1
+  const controla_stock = controlaStockCheckbox ? (controlaStockCheckbox.checked ? 0 : 1) : 1;
+
   const data = {
     id: idRaw ? parseInt(idRaw) : null,
     nombre,
     categoria_id: parseInt(document.getElementById('producto-categoria').value) || null,
     precio: parseFloat(document.getElementById('producto-precio').value) || 0,
     stock_actual: parseInt(document.getElementById('producto-stock').value) || 0,
+    controla_stock: controla_stock
   };
+
   const res = data.id ? await window.electronAPI.updateProducto(data) : await window.electronAPI.createProducto(data);
-  if (res.ok) { document.getElementById('modal-producto').classList.remove('visible'); renderizarInventario(); }
-  else { console.error('[Producto] Error al guardar:', res.error); mostrarToast('Error al guardar: ' + res.error, 'error'); }
+  if (res.ok) {
+    const productoId = data.id || res.id;
+    
+    // Guardar vinculación de combos/grupos
+    const grupoIds = Array.from(document.querySelectorAll('.combo-grupo-checkbox:checked'))
+      .map(cb => parseInt(cb.value));
+    
+    await window.electronAPI.saveProductoGrupos(productoId, grupoIds);
+
+    document.getElementById('modal-producto').classList.remove('visible');
+    renderizarInventario();
+    mostrarToast('Producto guardado correctamente', 'success');
+  } else {
+    console.error('[Producto] Error al guardar:', res.error);
+    mostrarToast('Error al guardar: ' + res.error, 'error');
+  }
 }
 async function eliminarProducto(id) { if (confirm("¿Eliminar producto?")) { await window.electronAPI.deleteProducto(id); renderizarInventario(); } }
 
@@ -1567,6 +2318,8 @@ function setupTiendaListeners() {
     document.getElementById('historial-archivados').style.display = 'none';
     document.getElementById('tab-ventas').classList.add('activo');
     document.getElementById('tab-archivados').classList.remove('activo');
+    const filters = document.getElementById('historial-filtros-ventas');
+    if (filters) filters.style.display = 'flex';
   });
 
   document.getElementById('tab-archivados')?.addEventListener('click', () => {
@@ -1574,7 +2327,20 @@ function setupTiendaListeners() {
     document.getElementById('historial-archivados').style.display = 'block';
     document.getElementById('tab-ventas').classList.remove('activo');
     document.getElementById('tab-archivados').classList.add('activo');
+    const filters = document.getElementById('historial-filtros-ventas');
+    if (filters) filters.style.display = 'none';
     cargarArchivados();
+  });
+
+  // Historial: filtros de fecha
+  document.getElementById('filtro-fecha-desde')?.addEventListener('change', aplicarFiltrosVentas);
+  document.getElementById('filtro-fecha-hasta')?.addEventListener('change', aplicarFiltrosVentas);
+  document.getElementById('btn-limpiar-fechas')?.addEventListener('click', () => {
+    const desde = document.getElementById('filtro-fecha-desde');
+    const hasta = document.getElementById('filtro-fecha-hasta');
+    if (desde) desde.value = '';
+    if (hasta) hasta.value = '';
+    aplicarFiltrosVentas();
   });
 
   // Historial: exportar CSV
@@ -1673,6 +2439,10 @@ async function abrirModalCierre() {
     !p.archivado && p.estado === 'cancelado'
   );
 
+  const desperdiciosHoy = state.pedidos.filter(p =>
+    !p.archivado && p.estado === 'desperdicio'
+  );
+
   resumen.innerHTML = `
     <div class="cierre-stat">
       <span class="cierre-stat-label">✅ Pedidos Entregados</span>
@@ -1681,6 +2451,10 @@ async function abrirModalCierre() {
     <div class="cierre-stat">
       <span class="cierre-stat-label">💰 Total Recaudado</span>
       <span class="cierre-stat-valor verde">$${totalHoy.toLocaleString('es-AR')}</span>
+    </div>
+    <div class="cierre-stat">
+      <span class="cierre-stat-label">🗑️ Pedidos en Desperdicio</span>
+      <span class="cierre-stat-valor" style="color: #a0a0b8;">${desperdiciosHoy.length}</span>
     </div>
     <div class="cierre-stat">
       <span class="cierre-stat-label">❌ Pedidos Cancelados</span>
@@ -1718,6 +2492,19 @@ async function cargarHistorial() {
     tabVentas.classList.add('activo');
   }
 
+  // Inicializar explícitamente los estilos de visualización y filtros según la pestaña activa para evitar desajustes en el primer render
+  if (tabVentas && tabVentas.classList.contains('activo')) {
+    contVentas.style.display = 'block';
+    if (contArchivados) contArchivados.style.display = 'none';
+    const filters = document.getElementById('historial-filtros-ventas');
+    if (filters) filters.style.display = 'flex';
+  } else if (tabArchivados && tabArchivados.classList.contains('activo')) {
+    contVentas.style.display = 'none';
+    if (contArchivados) contArchivados.style.display = 'block';
+    const filters = document.getElementById('historial-filtros-ventas');
+    if (filters) filters.style.display = 'none';
+  }
+
   if (contVentas.style.display !== 'none') {
     contVentas.innerHTML = '<p style="color:var(--text2);padding:20px">Cargando...</p>';
     const res = await window.electronAPI.getHistorialPedidos();
@@ -1725,35 +2512,58 @@ async function cargarHistorial() {
       contVentas.innerHTML = '<p style="color:var(--danger)">Error al cargar historial</p>';
       return;
     }
-    renderizarHistorialVentas(res.data, contVentas);
+    state.historialVentas = res.data || [];
+    aplicarFiltrosVentas();
   }
+}
+
+function aplicarFiltrosVentas() {
+  const desdeVal = document.getElementById('filtro-fecha-desde')?.value;
+  const hastaVal = document.getElementById('filtro-fecha-hasta')?.value;
+  const contVentas = document.getElementById('historial-ventas');
+  if (!contVentas) return;
+
+  let filtered = [...state.historialVentas];
+
+  if (desdeVal) {
+    const desdeDate = new Date(desdeVal + 'T00:00:00');
+    filtered = filtered.filter(p => parseSQLiteDate(p.created_at) >= desdeDate);
+  }
+
+  if (hastaVal) {
+    const hastaDate = new Date(hastaVal + 'T23:59:59');
+    filtered = filtered.filter(p => parseSQLiteDate(p.created_at) <= hastaDate);
+  }
+
+  renderizarHistorialVentas(filtered, contVentas);
 }
 
 function renderizarHistorialVentas(pedidos, container) {
   if (pedidos.length === 0) {
-    container.innerHTML = '<div class="empty-state">No hay pedidos entregados en los últimos 3 meses.</div>';
+    container.innerHTML = '<div class="empty-state">No hay pedidos para mostrar en este rango de fechas.</div>';
     return;
   }
 
-  // Agrupar por mes
-  const porMes = {};
+  // Agrupar por día
+  const porDia = {};
   pedidos.forEach(p => {
-    const fecha = new Date(p.created_at);
-    const key = fecha.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-    if (!porMes[key]) porMes[key] = { pedidos: [], total: 0 };
-    porMes[key].pedidos.push(p);
-    porMes[key].total += parseFloat(p.total) || 0;
+    const fecha = parseSQLiteDate(p.created_at);
+    // Clave para agrupar por día
+    const key = fecha.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    if (!porDia[key]) porDia[key] = { pedidos: [], total: 0 };
+    porDia[key].pedidos.push(p);
+    porDia[key].total += parseFloat(p.total) || 0;
   });
 
-  container.innerHTML = Object.entries(porMes).map(([mes, data]) => `
-    <div class="historial-mes">
-      <div class="historial-mes-header">
-        <h3>📅 ${mes.charAt(0).toUpperCase() + mes.slice(1)}</h3>
-        <span class="historial-mes-total">${data.pedidos.length} pedidos — <strong>$${data.total.toLocaleString('es-AR')}</strong></span>
+  container.innerHTML = Object.entries(porDia).map(([dia, data]) => `
+    <div class="historial-dia">
+      <div class="historial-dia-header">
+        <h3>📅 ${dia.charAt(0).toUpperCase() + dia.slice(1)}</h3>
+        <span class="historial-dia-total">${data.pedidos.length} pedidos — <strong>$${data.total.toLocaleString('es-AR')}</strong></span>
       </div>
       <div class="historial-tabla">
         <div class="historial-tabla-header">
-          <span>Pedido</span><span>Cliente</span><span>Productos</span><span>Total</span><span>Pago</span><span>Fecha</span>
+          <span>Pedido</span><span>Cliente</span><span>Productos</span><span>Total</span><span>Método</span><span>Hora</span>
         </div>
         ${data.pedidos.map(p => {
           let prods = [];
@@ -1766,7 +2576,7 @@ function renderizarHistorialVentas(pedidos, container) {
               <span class="hist-prods">${escapeHtml(resumen)}</span>
               <span class="hist-total">$${parseFloat(p.total||0).toLocaleString('es-AR')}</span>
               <span>${p.metodo_pago || 'efectivo'}</span>
-              <span class="hist-fecha">${new Date(p.created_at).toLocaleDateString('es-AR')}</span>
+              <span class="hist-fecha">${parseSQLiteDate(p.created_at).toLocaleTimeString('es-AR', {hour: '2-digit', minute:'2-digit'})}</span>
             </div>
           `;
         }).join('')}
@@ -1803,8 +2613,11 @@ async function cargarArchivados() {
           <span>${escapeHtml(p.cliente_nombre)}</span>
           <span class="lista-estado estado-${p.estado}">${ESTADOS[p.estado]?.emoji || ''} ${ESTADOS[p.estado]?.label || p.estado}</span>
           <span class="hist-total">$${parseFloat(p.total||0).toLocaleString('es-AR')}</span>
-          <span class="hist-fecha">${new Date(p.created_at).toLocaleDateString('es-AR')}</span>
-          <button class="btn btn-small btn-primary btn-entregar-arch" data-id="${p.id}" style="font-size: 11px;">✔✔ Entregado</button>
+          <span class="hist-fecha">${parseSQLiteDate(p.created_at).toLocaleDateString('es-AR')}</span>
+          <div style="display:flex; gap:5px; align-items:center;">
+            <button class="btn btn-small btn-primary btn-entregar-arch" data-id="${p.id}" style="font-size: 11px; padding: 4px 8px;">✔ Entregar</button>
+            <button class="btn btn-small btn-danger btn-cancelar-arch" data-id="${p.id}" style="font-size: 11px; padding: 4px 8px;">❌ Cancelar</button>
+          </div>
         </div>
       `).join('')}
     </div>
@@ -1812,7 +2625,9 @@ async function cargarArchivados() {
 
   // Click en la fila → abrir modal en modo solo lectura
   container.querySelectorAll('.clickable-row').forEach(row => {
-    row.addEventListener('click', async () => {
+    row.addEventListener('click', async (e) => {
+      // Si hizo click en un botón de acción, no abrir modal
+      if (e.target.closest('button')) return;
       const id = parseInt(row.dataset.id);
       await abrirModal(id);
       document.getElementById('modal-pedido').classList.add('visible');
@@ -1835,53 +2650,113 @@ async function cargarArchivados() {
       }
     });
   });
+
+  container.querySelectorAll('.btn-cancelar-arch').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id);
+      const confirmar = confirm('¿Cancelar este pedido archivado? Se restaurará el stock de sus ingredientes.');
+      if (!confirmar) return;
+      const res = await window.electronAPI.deletePedido(id);
+      if (res.ok) {
+        await window.electronAPI.desarchivarPedido(id);
+        mostrarToast('❌ Pedido cancelado correctamente', 'warning');
+        await cargarPedidosIniciales();
+        cargarArchivados();
+      } else {
+        mostrarToast('❌ Error al cancelar: ' + (res.error || 'Error desconocido'), 'error');
+      }
+    });
+  });
 }
 
 // ─── CONFIGURACIÓN DE IMPRESORA ─────────────────────────────────────────
+
+// Función auxiliar: llenar el select de impresoras usando el sistema Windows
+async function cargarImpresorasEnSelect(selectPrinter, currentValue) {
+  selectPrinter.innerHTML = '<option value="">Detectando impresoras...</option>';
+  
+  // Intentar primero con PowerShell (más confiable para impresoras térmicas USB)
+  let printerNames = [];
+  const resSys = await window.electronAPI.listSystemPrinters?.();
+  
+  if (resSys && resSys.ok && resSys.data && resSys.data.length > 0) {
+    printerNames = resSys.data; // array de strings
+  } else {
+    // Fallback: API de Electron
+    const resElectron = await window.electronAPI.listPrinters();
+    if (resElectron.ok && resElectron.data) {
+      printerNames = resElectron.data.map(p => p.displayName || p.name);
+    }
+  }
+
+  if (printerNames.length > 0) {
+    selectPrinter.innerHTML = '<option value="">-- Seleccionar Impresora --</option>';
+    printerNames.forEach(name => {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      selectPrinter.appendChild(option);
+    });
+    // Si había un valor previo y está en la lista, seleccionarlo
+    if (currentValue) {
+      selectPrinter.value = currentValue;
+      // Si no encontró el valor guardado, marcarlo como opción custom
+      if (!selectPrinter.value) {
+        const customOpt = document.createElement('option');
+        customOpt.value = currentValue;
+        customOpt.textContent = `${currentValue} (no encontrada en esta PC)`;
+        customOpt.style.color = '#e74c3c';
+        selectPrinter.insertBefore(customOpt, selectPrinter.children[1]);
+        selectPrinter.value = currentValue;
+      }
+    }
+    return true;
+  } else {
+    selectPrinter.innerHTML = '<option value="">No se detectaron impresoras</option>';
+    return false;
+  }
+}
 
 document.getElementById('btn-configuracion')?.addEventListener('click', async () => {
   const modal = document.getElementById('modal-configuracion');
   const selectPrinter = document.getElementById('config-impresora-nombre');
   const selectWidth = document.getElementById('config-impresora-ancho');
 
-  // Cargar impresoras
-  selectPrinter.innerHTML = '<option value="">Cargando...</option>';
-  const resPrinters = await window.electronAPI.listPrinters();
-  
-  if (resPrinters.ok) {
-    selectPrinter.innerHTML = '<option value="">-- Seleccionar Impresora --</option>';
-    resPrinters.data.forEach(p => {
-      const option = document.createElement('option');
-      option.value = p.name;
-      option.textContent = p.displayName || p.name;
-      selectPrinter.appendChild(option);
-    });
-  } else {
-    selectPrinter.innerHTML = '<option value="">Error al cargar impresoras</option>';
+  // Cargar configuración actual primero
+  const resConfig = await window.electronAPI.getConfig();
+  let savedPrinterName = '';
+  if (resConfig.ok) {
+    savedPrinterName = resConfig.data.impresora_nombre || '';
+    if (resConfig.data.impresora_ancho) selectWidth.value = resConfig.data.impresora_ancho;
+    if (resConfig.data.negocio_nombre) document.getElementById('config-empresa-nombre').value = resConfig.data.negocio_nombre;
+    if (resConfig.data.negocio_direccion) document.getElementById('config-empresa-direccion').value = resConfig.data.negocio_direccion;
+    if (resConfig.data.negocio_web) document.getElementById('config-empresa-web').value = resConfig.data.negocio_web;
   }
 
-  // Cargar configuración actual
-  const resConfig = await window.electronAPI.getConfig();
-  if (resConfig.ok) {
-    if (resConfig.data.impresora_nombre) {
-      selectPrinter.value = resConfig.data.impresora_nombre;
-    }
-    if (resConfig.data.impresora_ancho) {
-      selectWidth.value = resConfig.data.impresora_ancho;
-    }
-    if (resConfig.data.negocio_nombre) {
-      document.getElementById('config-empresa-nombre').value = resConfig.data.negocio_nombre;
-    }
-    if (resConfig.data.negocio_direccion) {
-      document.getElementById('config-empresa-direccion').value = resConfig.data.negocio_direccion;
-    }
-    if (resConfig.data.negocio_web) {
-      document.getElementById('config-empresa-web').value = resConfig.data.negocio_web;
-    }
-  }
+  // Cargar impresoras (PowerShell)
+  await cargarImpresorasEnSelect(selectPrinter, savedPrinterName);
 
   modal.classList.add('visible');
 });
+
+// Botón "Detectar" — recarga la lista de impresoras en tiempo real
+document.getElementById('btn-detectar-impresoras')?.addEventListener('click', async () => {
+  const selectPrinter = document.getElementById('config-impresora-nombre');
+  const currentValue = selectPrinter.value;
+  const btn = document.getElementById('btn-detectar-impresoras');
+  btn.textContent = '⏳';
+  btn.disabled = true;
+  const found = await cargarImpresorasEnSelect(selectPrinter, currentValue);
+  btn.textContent = '🔍 Detectar';
+  btn.disabled = false;
+  if (found) {
+    mostrarToast('✅ Impresoras detectadas en esta computadora', 'success');
+  } else {
+    mostrarToast('⚠️ No se encontraron impresoras instaladas', 'warning');
+  }
+});
+
 
 document.getElementById('btn-cerrar-configuracion')?.addEventListener('click', () => {
   document.getElementById('modal-configuracion').classList.remove('visible');

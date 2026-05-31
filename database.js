@@ -69,7 +69,8 @@ function initDatabase() {
       precio REAL NOT NULL,
       categoria TEXT, -- Ahora opcional
       stock_actual INTEGER DEFAULT 0,
-      categoria_id INTEGER REFERENCES categorias(id)
+      categoria_id INTEGER REFERENCES categorias(id),
+      controla_stock INTEGER DEFAULT 1
     );
 
     CREATE TABLE IF NOT EXISTS insumos (
@@ -124,6 +125,40 @@ function initDatabase() {
       valor   TEXT NOT NULL
     );
 
+    -- NUEVAS TABLAS PARA PERSONALIZACIÓN --
+    CREATE TABLE IF NOT EXISTS grupos_opciones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nombre TEXT NOT NULL,
+      min_seleccion INTEGER DEFAULT 1,
+      max_seleccion INTEGER DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS opciones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      grupo_id INTEGER NOT NULL,
+      nombre TEXT NOT NULL,
+      precio_extra REAL DEFAULT 0,
+      FOREIGN KEY(grupo_id) REFERENCES grupos_opciones(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS recetas_opciones (
+      opcion_id INTEGER NOT NULL,
+      insumo_id INTEGER NOT NULL,
+      cantidad_necesaria REAL NOT NULL,
+      FOREIGN KEY(opcion_id) REFERENCES opciones(id) ON DELETE CASCADE,
+      FOREIGN KEY(insumo_id) REFERENCES insumos(id) ON DELETE CASCADE,
+      PRIMARY KEY(opcion_id, insumo_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS producto_grupos (
+      producto_id INTEGER NOT NULL,
+      grupo_id INTEGER NOT NULL,
+      prioridad INTEGER DEFAULT 0,
+      FOREIGN KEY(producto_id) REFERENCES productos(id) ON DELETE CASCADE,
+      FOREIGN KEY(grupo_id) REFERENCES grupos_opciones(id) ON DELETE CASCADE,
+      PRIMARY KEY(producto_id, grupo_id)
+    );
+
     -- Índices para acelerar las consultas más comunes
     CREATE INDEX IF NOT EXISTS idx_pedidos_estado ON pedidos(estado);
     CREATE INDEX IF NOT EXISTS idx_pedidos_created ON pedidos(created_at DESC);
@@ -132,6 +167,7 @@ function initDatabase() {
   // Migraciones menores para añadir columnas a tablas existentes
   try { db.exec("ALTER TABLE productos ADD COLUMN categoria_id INTEGER REFERENCES categorias(id);"); } catch (e) { }
   try { db.exec("ALTER TABLE insumos ADD COLUMN categoria_id INTEGER REFERENCES categorias(id);"); } catch (e) { }
+  try { db.exec("ALTER TABLE productos ADD COLUMN controla_stock INTEGER DEFAULT 1;"); } catch (e) { }
   try { db.prepare('ALTER TABLE pedidos ADD COLUMN direccion TEXT DEFAULT ""').run(); } catch (e) { }
   try { db.prepare('ALTER TABLE pedidos ADD COLUMN archivado INTEGER DEFAULT 0').run(); } catch (e) { }
   try { db.prepare('ALTER TABLE pedidos ADD COLUMN tipo_envio TEXT DEFAULT "Retiro Local"').run(); } catch (e) { }
@@ -149,6 +185,38 @@ function initDatabase() {
   insertConfig.run('direccion_negocio', 'Tu dirección aquí');
   insertConfig.run('whatsapp_negocio', '+54 9 11 0000-0000');
   insertConfig.run('tienda_abierta', '0');  // 0 = cerrada | 1 = abierta
+
+  // Datos de prueba para personalización (solo si no existen)
+  try {
+    const hasOptions = db.prepare("SELECT id FROM grupos_opciones LIMIT 1").get();
+    if (!hasOptions) {
+      // 1. Crear Grupos
+      const gid1 = db.prepare("INSERT INTO grupos_opciones (nombre, min_seleccion, max_seleccion) VALUES (?, ?, ?)").run("Elegí tu Medallón", 1, 1).lastInsertRowid;
+      const gid2 = db.prepare("INSERT INTO grupos_opciones (nombre, min_seleccion, max_seleccion) VALUES (?, ?, ?)").run("Acompañamiento", 1, 1).lastInsertRowid;
+      const gid3 = db.prepare("INSERT INTO grupos_opciones (nombre, min_seleccion, max_seleccion) VALUES (?, ?, ?)").run("Bebida", 1, 1).lastInsertRowid;
+
+      // 2. Crear Opciones
+      db.prepare("INSERT INTO opciones (grupo_id, nombre, precio_extra) VALUES (?, ?, ?)").run(gid1, "Carne Vacuna", 0);
+      db.prepare("INSERT INTO opciones (grupo_id, nombre, precio_extra) VALUES (?, ?, ?)").run(gid1, "Doble Carne", 2500);
+      db.prepare("INSERT INTO opciones (grupo_id, nombre, precio_extra) VALUES (?, ?, ?)").run(gid1, "Pollo Crispy", 0);
+
+      db.prepare("INSERT INTO opciones (grupo_id, nombre, precio_extra) VALUES (?, ?, ?)").run(gid2, "Papas Fritas", 0);
+      db.prepare("INSERT INTO opciones (grupo_id, nombre, precio_extra) VALUES (?, ?, ?)").run(gid2, "Wopapas", 1200);
+      db.prepare("INSERT INTO opciones (grupo_id, nombre, precio_extra) VALUES (?, ?, ?)").run(gid2, "Ensalada", 0);
+
+      db.prepare("INSERT INTO opciones (grupo_id, nombre, precio_extra) VALUES (?, ?, ?)").run(gid3, "Coca Cola", 0);
+      db.prepare("INSERT INTO opciones (grupo_id, nombre, precio_extra) VALUES (?, ?, ?)").run(gid3, "Agua Mineral", 0);
+      db.prepare("INSERT INTO opciones (grupo_id, nombre, precio_extra) VALUES (?, ?, ?)").run(gid3, "Cerveza", 1500);
+
+      // 3. Vincular a productos (Asumimos que el producto 1 es una hamburguesa base)
+      const p1 = db.prepare("SELECT id FROM productos LIMIT 1").get();
+      if (p1) {
+        db.prepare("INSERT INTO producto_grupos (producto_id, grupo_id, prioridad) VALUES (?, ?, ?)").run(p1.id, gid1, 1);
+        db.prepare("INSERT INTO producto_grupos (producto_id, grupo_id, prioridad) VALUES (?, ?, ?)").run(p1.id, gid2, 2);
+        db.prepare("INSERT INTO producto_grupos (producto_id, grupo_id, prioridad) VALUES (?, ?, ?)").run(p1.id, gid3, 3);
+      }
+    }
+  } catch (e) { console.error("Error insertando datos semilla:", e); }
 
   console.log(`[DB] SQLite conectado en: ${dbPath}`);
   return db;
