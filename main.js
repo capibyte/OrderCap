@@ -126,9 +126,15 @@ function setupIpcHandlers(db) {
       return { ok: false, error: `Estado invalido: ${estado}` };
     }
     try {
-      db.prepare(`
-        UPDATE pedidos SET estado = ?, updated_at = datetime('now') WHERE id = ?
-      `).run(estado, id);
+      if (estado === 'listo') {
+        db.prepare(`
+          UPDATE pedidos SET estado = ?, flag_alerta = 0, updated_at = datetime('now') WHERE id = ?
+        `).run(estado, id);
+      } else {
+        db.prepare(`
+          UPDATE pedidos SET estado = ?, updated_at = datetime('now') WHERE id = ?
+        `).run(estado, id);
+      }
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -1106,7 +1112,7 @@ app.whenReady().then(() => {
   console.log('[Main] Handlers IPC registrados');
 
   // 3. Levantar servidor HTTP interno (Express)
-  startServer();
+  startServer(db, () => mainWindow);
 
   // 4. Crear la ventana principal
   createWindow();

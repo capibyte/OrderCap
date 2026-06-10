@@ -2308,3 +2308,42 @@ textarea.edit-input {
   min-width: 70px;
   text-align: right;
 }
+
+/* ── Alertas de Transferencia / Pago Automatizado ── */
+.pedido-card.alerta-transferencia {
+  border: 2.5px solid #ff3838 !important;
+  box-shadow: 0 0 14px rgba(255, 56, 56, 0.45) !important;
+  background: linear-gradient(145deg, #2b141b, #1a0f14) !important;
+}
+
+.badge-alerta {
+  background-color: #ff3838;
+  color: #ffffff;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  margin-left: 10px;
+  vertical-align: middle;
+  animation: pulse-alerta 2s infinite;
+  display: inline-block;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.badge-alerta-chico {
+  margin-left: 6px;
+  font-size: 0.85rem;
+  cursor: help;
+}
+
+.lista-row.alerta-transferencia-row {
+  border-left: 4.5px solid #ff3838 !important;
+  background: rgba(255, 56, 56, 0.08) !important;
+}
+
+@keyframes pulse-alerta {
+  0% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.04); opacity: 1; }
+  100% { transform: scale(1); opacity: 0.85; }
+}

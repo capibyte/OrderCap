@@ -59,6 +59,7 @@ function initDatabase() {
       notas           TEXT DEFAULT '',
       fuente          TEXT DEFAULT 'manual',
       archivado       INTEGER DEFAULT 0,           -- 0 = activo | 1 = archivado (quedó pendiente al cerrar)
+      flag_alerta     INTEGER DEFAULT 0,           -- 0 = sin alerta | 1 = alerta de transferencia / pago discrepante
       created_at      TEXT DEFAULT (datetime('now', 'localtime')),
       updated_at      TEXT DEFAULT (datetime('now', 'localtime'))
     );
@@ -173,6 +174,7 @@ function initDatabase() {
   try { db.prepare('ALTER TABLE pedidos ADD COLUMN tipo_envio TEXT DEFAULT "Retiro Local"').run(); } catch (e) { }
   try { db.prepare('ALTER TABLE pedidos ADD COLUMN costo_envio REAL DEFAULT 0').run(); } catch (e) { }
   try { db.prepare('ALTER TABLE pedidos ADD COLUMN departamento TEXT DEFAULT ""').run(); } catch (e) { }
+  try { db.prepare('ALTER TABLE pedidos ADD COLUMN flag_alerta INTEGER DEFAULT 0').run(); } catch (e) { }
 
   // Insertar config por defecto si no existe
   const insertConfig = db.prepare(`

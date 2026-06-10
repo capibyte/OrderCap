@@ -46,6 +46,32 @@ document.addEventListener('DOMContentLoaded', async () => {
   iniciarPolling();
   setupEventListeners();
   setupTiendaListeners();
+
+  // Escuchar nuevos pedidos en tiempo real vía IPC (enviados desde Express / n8n)
+  window.electronAPI.on('pedidos:nuevo', (data) => {
+    console.log('[Renderer] Recibido evento IPC pedidos:nuevo:', data);
+    const { pedido, flag_alerta } = data;
+
+    // Evitar duplicados debido al polling periódico
+    const existe = state.pedidos.find(p => p.id === pedido.id || p.numero_pedido === pedido.numero_pedido);
+    if (!existe) {
+      // Forzar que el campo de flag_alerta se guarde en formato de base de datos (0/1)
+      pedido.flag_alerta = flag_alerta ? 1 : 0;
+      
+      // Añadir al inicio de los pedidos locales
+      state.pedidos.unshift(pedido);
+
+      // Disparar notificaciones y toast
+      mostrarNotificacionNuevoPedido(pedido);
+
+      if (flag_alerta) {
+        mostrarToast('⚠️ Advertencia: Requiere revisión de comprobante de pago/transferencia.', 'warning');
+      }
+
+      // Volver a renderizar la vista activa para pintar el nuevo pedido al instante
+      renderizarVista();
+    }
+  });
 });
 
 // ─── Carga inicial ─────────────────────────────────────────────────────────
@@ -363,15 +389,21 @@ function renderizarLista(pedidos) {
     return;
   }
 
-  lista.innerHTML = pedidos.map(p => `
-    <div class="lista-row" data-id="${p.id}">
-      <span class="lista-numero">${p.numero_pedido || '#' + p.id}</span>
-      <span class="lista-cliente">${escapeHtml(p.cliente_nombre)}</span>
-      <span class="lista-estado estado-${p.estado}">${ESTADOS[p.estado]?.emoji} ${ESTADOS[p.estado]?.label || p.estado}</span>
-      <span class="lista-total">$${parseFloat(p.total || 0).toLocaleString('es-AR')}</span>
-      <span class="lista-tiempo">${tiempoRelativo(p.created_at)}</span>
-    </div>
-  `).join('');
+  lista.innerHTML = pedidos.map(p => {
+    const isAlerta = p.flag_alerta === 1 || p.flag_alerta === true;
+    const alertaClase = isAlerta ? 'alerta-transferencia-row' : '';
+    const alertaBadge = isAlerta ? `<span class="badge-alerta-chico" title="Requiere revisión de transferencia">⚠️</span>` : '';
+
+    return `
+      <div class="lista-row ${alertaClase}" data-id="${p.id}">
+        <span class="lista-numero">${p.numero_pedido || '#' + p.id}${alertaBadge}</span>
+        <span class="lista-cliente">${escapeHtml(p.cliente_nombre)}</span>
+        <span class="lista-estado estado-${p.estado}">${ESTADOS[p.estado]?.emoji} ${ESTADOS[p.estado]?.label || p.estado}</span>
+        <span class="lista-total">$${parseFloat(p.total || 0).toLocaleString('es-AR')}</span>
+        <span class="lista-tiempo">${tiempoRelativo(p.created_at)}</span>
+      </div>
+    `;
+  }).join('');
 
   // Listeners: abrir modal al hacer click en cualquier fila
   lista.querySelectorAll('.lista-row').forEach(row => {
@@ -415,10 +447,15 @@ function crearCardHTML(pedido) {
     }
   }
 
+  const alertaClase = (pedido.flag_alerta === 1 || pedido.flag_alerta === true) ? 'alerta-transferencia' : '';
+  const alertaBadge = (pedido.flag_alerta === 1 || pedido.flag_alerta === true) 
+    ? `<span class="badge-alerta" title="El precio pagado por el cliente no coincide. Requiere revisión.">⚠️ Revisar Pago</span>` 
+    : '';
+
   return `
-    <div class="pedido-card" data-id="${pedido.id}">
+    <div class="pedido-card ${alertaClase}" data-id="${pedido.id}">
       <div class="card-header">
-        <span class="card-numero">${pedido.numero_pedido || '#' + pedido.id}</span>
+        <span class="card-numero">${pedido.numero_pedido || '#' + pedido.id}${alertaBadge}</span>
         <span class="card-tiempo">${tiempoRelativo(pedido.created_at)}</span>
       </div>
       <div class="card-cliente">👤 ${escapeHtml(pedido.cliente_nombre)}</div>
@@ -1028,11 +1065,11 @@ async function recalcularTotal() {
 
     if (res.ok && !res.enough) {
       btnGuardar.disabled = true;
-      btnGuardar.textContent = '❌ Sin Stock';
+      btnGuardar.innerHTML = '❌';
       mostrarError('Stock insuficiente: ' + res.errors.join(' | '));
     } else {
       btnGuardar.disabled = false;
-      btnGuardar.textContent = state.isCreateMode ? '💾 Guardar Pedido' : '💾 Guardar Cambios';
+      btnGuardar.innerHTML = '💾';
       if (errorMsg && errorMsg.style.display === 'block') errorMsg.style.display = 'none';
     }
   }
@@ -1054,7 +1091,7 @@ function cerrarModal() {
 async function guardarPedidoEditado() {
   const btn = document.getElementById('btn-guardar-pedido');
   btn.disabled = true;
-  btn.textContent = '⏳ Guardando...';
+  btn.innerHTML = '⏳';
 
   // Recopilar datos
   const productos = [];
@@ -1110,7 +1147,7 @@ async function guardarPedidoEditado() {
   }
 
   btn.disabled = false;
-  btn.textContent = '💾 Guardar';
+  btn.innerHTML = '💾';
 
   if (result.ok) {
     mostrarToast(state.isCreateMode ? '✅ Pedido creado' : '✅ Pedido actualizado', 'success');
@@ -1139,12 +1176,12 @@ async function imprimirPedido() {
   if (!pedido) return;
 
   const btn = document.getElementById('btn-imprimir');
-  btn.textContent = '⏳ Imprimiendo...';
+  btn.innerHTML = '⏳';
   btn.disabled = true;
 
   const result = await window.electronAPI.printPedido(pedido);
 
-  btn.textContent = '🖨️ Imprimir';
+  btn.innerHTML = '🖨️';
   btn.disabled = false;
 
   if (result.ok) {
@@ -1166,7 +1203,12 @@ async function cambiarEstado(id, nuevoEstado) {
     const estadoAnterior = pedido ? pedido.estado : null;
 
     // Actualizar el estado local
-    if (pedido) pedido.estado = nuevoEstado;
+    if (pedido) {
+      pedido.estado = nuevoEstado;
+      if (nuevoEstado === 'listo') {
+        pedido.flag_alerta = 0; // Quitar alerta visual
+      }
+    }
     renderizarVista();
 
     // Si pasó de Nuevo → Esperando (En Preparacion): imprimir automáticamente
@@ -1716,6 +1758,14 @@ function setupInventarioListeners() {
   document.getElementById('modal-opcion')?.addEventListener('click', (e) => {
     if (e.target.id === 'modal-opcion') document.getElementById('modal-opcion').classList.remove('visible');
   });
+
+  document.getElementById('btn-add-insumo-opcion')?.addEventListener('click', () => agregarFilaOpcionReceta());
+  document.getElementById('opcion-receta-items')?.addEventListener('click', (e) => {
+    const btnQuitar = e.target.closest('.btn-quitar-opcion-fila');
+    if (btnQuitar) {
+      btnQuitar.closest('.opcion-receta-item-row').remove();
+    }
+  });
 }
 
 async function checkAlerts() {
@@ -1958,12 +2008,30 @@ async function eliminarGrupo(id) {
   }
 }
 
-function abrirModalOpcion(data = null, grupoId) {
+async function abrirModalOpcion(data = null, grupoId) {
   document.getElementById('opcion-id').value = data?.id ?? '';
   document.getElementById('opcion-grupo-id').value = grupoId;
   document.getElementById('opcion-nombre').value = data?.nombre ?? '';
   document.getElementById('opcion-precio').value = data?.precio_extra ?? 0;
   document.getElementById('modal-opcion-title').textContent = data ? 'Editar Opción' : 'Nueva Opción';
+
+  // Limpiar y cargar insumos de la receta de la opción
+  const container = document.getElementById('opcion-receta-items');
+  if (container) {
+    container.innerHTML = '';
+    if (inventarioState.insumos.length === 0) {
+      const res = await window.electronAPI.getInsumos();
+      if (res.ok) inventarioState.insumos = res.data;
+    }
+
+    if (data && data.id) {
+      const resRec = await window.electronAPI.getRecetaOpcion(data.id);
+      if (resRec.ok && resRec.data && resRec.data.length > 0) {
+        resRec.data.forEach(item => agregarFilaOpcionReceta(item));
+      }
+    }
+  }
+
   document.getElementById('modal-opcion').classList.add('visible');
 }
 
@@ -1973,19 +2041,52 @@ async function guardarOpcion() {
   const idRaw = document.getElementById('opcion-id').value;
   const grupo_id = parseInt(document.getElementById('opcion-grupo-id').value);
   const precio_extra = parseFloat(document.getElementById('opcion-precio').value) || 0;
+  
   let res;
   if (idRaw) {
     res = await window.electronAPI.updateOpcion({ id: parseInt(idRaw), nombre, precio_extra });
   } else {
     res = await window.electronAPI.createOpcion({ grupo_id, nombre, precio_extra });
   }
+  
   if (res.ok) {
+    const opcionId = idRaw ? parseInt(idRaw) : res.id;
+    
+    // Obtener los insumos configurados para esta opción
+    const items = [];
+    document.querySelectorAll('.opcion-receta-item-row').forEach(row => {
+      const insumo_id = parseInt(row.querySelector('.select-insumo').value);
+      const cant = parseFloat(row.querySelector('.input-cant-insumo').value);
+      if (insumo_id && cant > 0) {
+        items.push({ insumo_id, cantidad_necesaria: cant });
+      }
+    });
+
+    // Guardar receta de la opción
+    await window.electronAPI.saveRecetaOpcion(opcionId, items);
+
     document.getElementById('modal-opcion').classList.remove('visible');
     await renderizarOpciones(grupo_id);
     mostrarToast('Opción guardada', 'success');
   } else {
     mostrarToast('Error: ' + res.error, 'error');
   }
+}
+
+function agregarFilaOpcionReceta(data = null) {
+  const container = document.getElementById('opcion-receta-items');
+  if (!container) return;
+
+  const options = inventarioState.insumos.map(i => 
+    '<option value="'+i.id+'" '+(data && data.insumo_id === i.id ? 'selected' : '')+'>'+escapeHtml(i.nombre)+' ('+i.unidad_medida+')</option>'
+  ).join('');
+
+  const div = document.createElement('div');
+  div.className = 'receta-item-row opcion-receta-item-row';
+  div.innerHTML = `<select class="edit-input select-insumo"><option value="">Insumo...</option>${options}</select>
+    <input type="number" class="edit-input input-cant-insumo" step="0.01" value="${data ? data.cantidad_necesaria : ''}" placeholder="Cant.">
+    <button class="btn-icon btn-quitar-opcion-fila">✕</button>`;
+  container.appendChild(div);
 }
 
 async function eliminarOpcion(id, grupoId) {
