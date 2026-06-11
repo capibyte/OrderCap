@@ -144,7 +144,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   on: (channel, callback) => {
     // Whitelist de canales permitidos (seguridad)
-    const allowedChannels = ['pedidos:nuevo', 'pedidos:actualizado', 'impresora:error'];
+    const allowedChannels = [
+      'pedidos:nuevo', 
+      'pedidos:actualizado', 
+      'impresora:error', 
+      'whatsapp:qr', 
+      'whatsapp:ready', 
+      'whatsapp:disconnected'
+    ];
     if (allowedChannels.includes(channel)) {
       ipcRenderer.on(channel, (_, ...args) => callback(...args));
     }

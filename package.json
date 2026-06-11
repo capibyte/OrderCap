@@ -16,7 +16,9 @@
     "electron-store": "^8.2.0",
     "express": "^5.2.1",
     "node-thermal-printer": "^4.3.4",
-    "usb": "^2.12.1"
+    "qrcode": "^1.5.4",
+    "usb": "^2.12.1",
+    "whatsapp-web.js": "^1.34.7"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",

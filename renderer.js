@@ -46,6 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   iniciarPolling();
   setupEventListeners();
   setupTiendaListeners();
+  setupWhatsAppListeners();
 
   // Escuchar nuevos pedidos en tiempo real vía IPC (enviados desde Express / n8n)
   window.electronAPI.on('pedidos:nuevo', (data) => {
@@ -2381,6 +2382,57 @@ function actualizarBotonTienda() {
     icon.textContent = '🔴';
     text.textContent = '¿Abrimos la Tienda?';
   }
+}
+
+function setupWhatsAppListeners() {
+  const statusDot = document.getElementById('whatsapp-status-dot');
+  const statusText = document.getElementById('whatsapp-status-text');
+  const qrContainer = document.getElementById('whatsapp-qr-container');
+  const qrImage = document.getElementById('whatsapp-qr-image');
+
+  if (!statusDot || !statusText || !qrContainer || !qrImage) {
+    console.error('[WhatsApp UI] No se encontraron algunos elementos de la interfaz de WhatsApp.');
+    return;
+  }
+
+  // 1. Evento QR recibido
+  window.electronAPI.on('whatsapp:qr', (qrBase64) => {
+    console.log("QR recibido", qrBase64);
+    
+    // Cambiar estado visual
+    statusDot.className = 'status-dot dot-escaneando';
+    statusText.textContent = 'Escaneando...';
+    
+    // Mostrar QR e inyectar src
+    qrImage.src = qrBase64;
+    qrContainer.style.display = 'flex';
+  });
+
+  // 2. Evento Listo (Conectado)
+  window.electronAPI.on('whatsapp:ready', () => {
+    console.log("WhatsApp Conectado exitosamente");
+    
+    // Cambiar estado visual
+    statusDot.className = 'status-dot dot-conectado';
+    statusText.textContent = 'Conectado';
+    
+    // Ocultar QR
+    qrContainer.style.display = 'none';
+    qrImage.src = '';
+  });
+
+  // 3. Evento Desconectado
+  window.electronAPI.on('whatsapp:disconnected', () => {
+    console.log("WhatsApp Desconectado");
+    
+    // Cambiar estado visual
+    statusDot.className = 'status-dot dot-desconectado';
+    statusText.textContent = 'Desconectado';
+    
+    // Ocultar QR
+    qrContainer.style.display = 'none';
+    qrImage.src = '';
+  });
 }
 
 function setupTiendaListeners() {

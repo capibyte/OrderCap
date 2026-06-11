@@ -20,3 +20,11 @@ Burger Orders.lnk
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# WhatsApp Web.js Session & Cache
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Databases
+*.sqlite
+database.sqlite

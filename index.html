@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <!-- CSP: solo permite scripts del mismo origen -->
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+    content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
   <title>🍔 CapiMenu</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -541,7 +541,20 @@
     </div>
   </div>
 
-
+  <!-- ── Módulo WhatsApp ──────────────────────────────────────────── -->
+  <div id="whatsapp-widget" class="whatsapp-widget">
+    <div class="whatsapp-widget-header">
+      <span id="whatsapp-status-dot" class="status-dot dot-iniciando"></span>
+      <h3 class="whatsapp-widget-title">Conexión WhatsApp</h3>
+    </div>
+    <div class="whatsapp-widget-body">
+      <p id="whatsapp-status-text" class="whatsapp-status-text">Iniciando...</p>
+      <div id="whatsapp-qr-container" class="whatsapp-qr-container" style="display: none;">
+        <p class="whatsapp-qr-hint">Escanea este código con tu celular para conectar WhatsApp Web</p>
+        <img id="whatsapp-qr-image" src="" alt="Código QR WhatsApp">
+      </div>
+    </div>
+  </div>
 
   <script src="renderer.js"></script>
 

@@ -14,6 +14,7 @@ const path = require('path');
 const { initDatabase, generarNumeroPedido } = require('./database');
 const { printTicket } = require('./printer');
 const { startServer } = require('./server');
+const { initWhatsApp } = require('./whatsappService');
 
 // ─── Configuración ─────────────────────────────────────────────────────────
 
@@ -1116,6 +1117,14 @@ app.whenReady().then(() => {
 
   // 4. Crear la ventana principal
   createWindow();
+
+  // 5. Inicializar servicio de WhatsApp nativo
+  try {
+    initWhatsApp(() => mainWindow);
+    console.log('[Main] Servicio de WhatsApp nativo inicializado');
+  } catch (err) {
+    console.error('[Main] Error al inicializar servicio de WhatsApp:', err);
+  }
 
   // macOS: re-crear ventana si se cierra y se reactiva el dock
   app.on('activate', () => {
